@@ -6,6 +6,7 @@ Generate Bitcoin testnet addresses for P2P Swap Bot escrow using mnemonic seed
 from bitcoinlib.mnemonic import Mnemonic
 from bitcoinlib.wallets import Wallet
 import os
+import time
 
 def generate_testnet_addresses():
     """Generate testnet addresses from mnemonic seed using BIP84 derivation"""
@@ -20,17 +21,6 @@ def generate_testnet_addresses():
     print("⚠️  Only the NEWEST seed phrase will control the bot's addresses")
     print("⚠️  Previous seed phrases remain valid for their respective addresses")
     print()
-    
-    # Force cleanup of any existing wallets
-    try:
-        # Get list of all wallets and delete any that start with p2pswap
-        all_wallets = Wallet.list_wallets()
-        existing_wallets = [w for w in all_wallets if 'p2pswap' in w.lower()]
-        for wallet_name_existing in existing_wallets:
-            Wallet.delete(wallet_name_existing)
-            print(f"🧹 Deleted existing wallet: {wallet_name_existing}")
-    except Exception as e:
-        print(f"🧹 Cleaning existing wallets: {e}")
     
     # Generate 12-word mnemonic seed
     mnemonic_obj = Mnemonic('english')
@@ -50,8 +40,8 @@ def generate_testnet_addresses():
     print("🚨 TESTNET ONLY - Never use on mainnet")
     print()
     
-    # Create wallet from mnemonic
-    wallet_name = 'p2pswap_testnet_escrow'
+    # Create wallet with unique name to avoid conflicts
+    wallet_name = f'p2pswap_testnet_{int(time.time())}'
     
     # Create new wallet
     wallet = Wallet.create(
