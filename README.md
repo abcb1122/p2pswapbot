@@ -1,175 +1,164 @@
-# p2pswapbot
-# P2P Bitcoin Swap Bot - Descripción Completa del Proyecto
+# P2P Bitcoin Swap Bot 🔄
 
-## Concepto Central
+A Telegram bot for peer-to-peer Lightning Network ⚡ and Bitcoin onchain swaps without custody.
 
-Bot de Telegram que facilita intercambios peer-to-peer entre Lightning Network y Bitcoin onchain sin custodia de fondos. Los usuarios pueden crear ofertas para intercambiar sats de Lightning por Bitcoin onchain (swap out) o Bitcoin onchain por Lightning sats (swap in).
+[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Telegram](https://img.shields.io/badge/Telegram-@btcp2pswapbot-blue.svg)](https://t.me/btcp2pswapbot)
 
-## Motivación del Proyecto
+## ✨ Features
 
-El proyecto surgió como alternativa a servicios como Lightning Loop, que requiere montos mínimos altos (250k sats) y depende de servicios centralizados. La idea era crear un marketplace P2P descentralizado donde usuarios con diferentes necesidades de liquidez pudieran intercambiar directamente.
+- **Swap Out**: Lightning → Bitcoin onchain
+- **Swap In**: Bitcoin onchain → Lightning  
+- **Non-custodial**: Bot never holds your funds
+- **P2P Matching**: Direct user-to-user trades
+- **Public Channel**: Transparent offer marketplace
+- **Standard Amounts**: 10k, 50k, 100k, 500k, 1M sats
+- **Reputation System**: User ratings and deal history
 
-## Arquitectura Técnica
+## 🚀 Quick Start
 
-**Stack Tecnológico:**
-- Backend: Python 3.9
-- Framework Bot: python-telegram-bot 21.3
-- Base de Datos: SQLite + SQLAlchemy
-- Red Bitcoin: Testnet (preparación para mainnet)
-- Configuración: python-dotenv
+### Prerequisites
 
-**Estructura del Proyecto:**
-```
-p2pswapbot/
-├── src/
-│   ├── bot.py              # Bot principal
-│   └── database/
-│       └── models.py       # Modelos User, Offer, Deal
-├── requirements.txt
-├── setup_database.py
-└── .env
-```
+- Python 3.9+
+- Telegram account
+- Basic knowledge of Bitcoin/Lightning
 
-## Evolución del Desarrollo
+### Installation
 
-### Sprint 1 - Infraestructura Base (Completado)
-**Objetivo:** Bot básico funcionando con persistencia
+1. **Clone the repository**
+   ```bash
+   git clone https://github.com/yourusername/p2pswapbot.git
+   cd p2pswapbot
+   ```
 
-**Logros:**
-- Bot de Telegram operativo con comandos básicos (/start, /help, /perfil)
-- Base de datos SQLite con 3 modelos (User, Offer, Deal)
-- Sistema de usuarios con registro automático
-- Logging y manejo básico de errores
-- Configuración de entorno con variables seguras
+2. **Create virtual environment**
+   ```bash
+   python -m venv venv
+   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   ```
 
-**Tecnología implementada:**
-- python-telegram-bot para interfaz Telegram
-- SQLAlchemy para ORM y persistencia
-- Sistema de logging para debugging
+3. **Install dependencies**
+   ```bash
+   pip install -r requirements.txt
+   ```
 
-### Sprint 2 - Sistema de Ofertas (Completado)
-**Objetivo:** Usuarios pueden crear y gestionar ofertas
+4. **Set up environment**
+   ```bash
+   cp .env.example .env
+   # Edit .env with your configuration
+   ```
 
-**Logros:**
-- Comandos /vender y /comprar (posteriormente migrados a /swapout y /swapin)
-- Validación de montos estándar (10k, 50k, 100k, 500k, 1M sats)
-- Base de datos de ofertas con estados (active, taken, completed)
-- Comando /ofertas para visualizar marketplace
-- Sistema básico de deals al tomar ofertas
+5. **Run the bot**
+   ```bash
+   python src/bot.py
+   ```
 
-**Decisiones de diseño:**
-- Montos estandarizados para mejorar privacidad y liquidez
-- Estados de ofertas para tracking del lifecycle
-- Separación clara entre ofertas y deals ejecutándose
+## 🔧 Configuration
 
-### Sprint 3 - Transformación UX (En progreso)
-**Objetivo:** Interface profesional en inglés con canal público
+### Getting Bot Token
 
-**Cambios implementados:**
-- Migración completa de español a inglés
-- Terminología técnica precisa: swap out (Lightning→Bitcoin) y swap in (Bitcoin→Lightning)
-- Sistema de botones inline en lugar de comandos de texto
-- Canal público @btcp2pswapoffers para distribución de ofertas
-- Auto-publicación de ofertas en canal al crearlas
+1. Message [@BotFather](https://t.me/botfather) on Telegram
+2. Create new bot: `/newbot`
+3. Follow instructions and get your token
+4. Add token to `.env` file
 
-**Mejoras de UX:**
-- Interfaz con botones [10k] [50k] [100k] [500k] [1M] para selección de montos
-- Mensajes concisos y claros
-- Terminología universalmente entendible en crypto
-- Visibilidad pública de ofertas para aumentar liquidez
+### Setting Up Channel
 
-## Estado Actual del Sistema
+1. Create public Telegram channel
+2. Add your bot as admin
+3. Get channel ID and add to `.env`
 
-### Funcionalidades Operativas:
-1. **Registro de usuarios** - Automático al usar /start
-2. **Creación de ofertas** - Swap out y swap in con botones
-3. **Marketplace público** - Canal de Telegram para visibilidad
-4. **Tomar ofertas** - Sistema básico de matching
-5. **Tracking de deals** - Base de datos de intercambios activos
+### Environment Variables
 
-### Flujos de Usuario Actuales:
+See `.env.example` for all configuration options.
 
-**Crear Swap Out (Lightning → Bitcoin):**
-1. /swapout → Botones de monto → Oferta creada → Publicada en canal
+## 📖 How It Works
 
-**Crear Swap In (Bitcoin → Lightning):**
-1. /swapin → Botones de monto → Oferta creada → Publicada en canal
+### For Users
 
-**Tomar Oferta:**
-1. /take [ID] → Deal creado → Notificación a ambas partes
+1. **Start**: `/start` to register
+2. **Create Offers**: 
+   - `/swapout` - Sell Lightning for Bitcoin
+   - `/swapin` - Buy Lightning with Bitcoin
+3. **Browse**: `/offers` to see available trades
+4. **Trade**: `/take [ID]` to accept an offer
 
-## Gaps Técnicos Identificados
+### Technical Flow
 
-### Inmediatos (Sprint 3 continuación):
-1. **Post-match workflow**: Capturar dirección Bitcoin después de tomar swap out
-2. **Lightning invoice handling**: Solicitar invoices para swap in
-3. **Sistema de escrow básico**: Multisig 2-of-3 en testnet
-4. **Monitoreo de transacciones**: Detección automática de depósitos
+1. **Offer Creation**: User creates swap offer
+2. **Public Listing**: Offer posted to channel
+3. **Matching**: Another user takes the offer
+4. **Escrow**: Multisig address created (planned)
+5. **Settlement**: Atomic swap execution (planned)
 
-### Medianos (Sprint 4):
-1. **Estados de conversación**: Tracking de usuarios en procesos multi-paso
-2. **Validaciones robustas**: Direcciones Bitcoin, Lightning invoices
-3. **Manejo de timeouts**: Expiración de deals inactivos
-4. **Sistema de disputas**: Resolución de conflictos
+## 🏗️ Development
 
-### Avanzados (Futuros sprints):
-1. **Escrow automático**: Release basado en confirmaciones blockchain
-2. **Sistema de reputación**: Scoring basado en historial
-3. **Características de privacidad**: Mixing de transacciones, timing aleatorio
-4. **Integración Lightning**: HODL invoices, submarine swaps nativos
+### Current Status: TESTNET ONLY
 
-## Decisiones de Diseño Clave
+This bot is currently running on Bitcoin testnet for development and testing.
 
-**Privacidad:**
-- Montos estandarizados para evitar fingerprinting
-- Usernames ocultos en ofertas públicas (solo calificación numérica)
-- Direcciones Bitcoin solicitadas just-in-time
+### Architecture
 
-**Seguridad:**
-- Sin custodia de fondos por el bot
-- Multisig 2-of-3 para escrow (comprador + vendedor + bot para arbitraje)
-- Validaciones exhaustivas en cada paso
+- **Backend**: Python + SQLAlchemy
+- **Database**: SQLite (local) / PostgreSQL (production)
+- **Bot Framework**: python-telegram-bot
+- **Network**: Bitcoin testnet
 
-**UX:**
-- Interfaz simple con botones
-- Terminología clara y universal
-- Canal público para discovery
-- Procesos step-by-step guiados
+### Contributing
 
-## Desafíos Técnicos Resueltos
+1. Fork the repository
+2. Create feature branch: `git checkout -b feature/amazing-feature`
+3. Commit changes: `git commit -m 'Add amazing feature'`
+4. Push branch: `git push origin feature/amazing-feature`
+5. Open Pull Request
 
-1. **Gestión de base de datos**: SQLAlchemy ORM con manejo correcto de sesiones
-2. **Estados de objetos**: Prevención de DetachedInstanceError en operaciones async
-3. **Integración de canal**: Auto-posting de ofertas con manejo de errores
-4. **Interfaz de botones**: CallbackQueryHandler para interacciones inline
-5. **Versionado de dependencias**: Resolución de conflictos en python-telegram-bot
+## 🛣️ Roadmap
 
-## Métricas y KPIs
+### Phase 1 (Current)
+- [x] Basic bot functionality
+- [x] Offer creation and matching
+- [x] Public channel integration
+- [ ] Post-match workflow
+- [ ] Address/invoice validation
 
-**Técnicas:**
-- Ofertas creadas por día
-- Deals completados exitosamente
-- Tiempo promedio de completar intercambio
-- Tasa de error en transacciones
+### Phase 2
+- [ ] Multisig escrow system
+- [ ] Automatic settlement
+- [ ] Dispute resolution
+- [ ] Enhanced security
 
-**De negocio:**
-- Volumen total de sats intercambiados
-- Usuarios activos únicos
-- Retención de usuarios
-- Crecimiento del marketplace
+### Phase 3
+- [ ] Mainnet deployment
+- [ ] Advanced privacy features
+- [ ] Mobile app integration
+- [ ] Lightning node integration
 
-## Roadmap Técnico
+## ⚠️ Security Notice
 
-**Próximos 30 días:**
-- Completar flujo post-match para ambos tipos de swap
-- Implementar escrow multisig básico en testnet
-- Sistema de monitoreo de transacciones Bitcoin
-- Manejo robusto de Lightning invoices
+**TESTNET ONLY**: This bot is currently for testing purposes only. Do not use with real Bitcoin on mainnet until security audits are complete.
 
-**60-90 días:**
-- Sistema de disputas y arbitraje
-- Release automático basado en confirmaciones
-- Migración gradual a mainnet
-- Optimizaciones de performance
+## 📄 License
 
-El proyecto demuestra evolución de concepto MVP a plataforma de intercambio funcional, con enfoque en seguridad, privacidad y experiencia de usuario profesional.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## 🤝 Support
+
+- **Telegram**: [@btcp2pswapbot](https://t.me/btcp2pswapbot)
+- **Channel**: [@btcp2pswapoffers](https://t.me/btcp2pswapoffers)
+- **Issues**: [GitHub Issues](https://github.com/yourusername/p2pswapbot/issues)
+
+## ⚡ Live Bot
+
+Try the bot: [@btcp2pswapbot](https://t.me/btcp2pswapbot)
+
+**Commands:**
+- `/start` - Register and get started
+- `/swapout` - Lightning → Bitcoin
+- `/swapin` - Bitcoin → Lightning
+- `/offers` - View marketplace
+- `/help` - Get help
+
+---
+
+**Disclaimer**: This is experimental software. Use at your own risk.
