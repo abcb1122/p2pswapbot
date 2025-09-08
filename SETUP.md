@@ -88,14 +88,27 @@ word1 word2 word3 word4 word5 word6 word7 word8 word9 word10 word11 word12
 - Network: testnet
 - Format: bech32 (tb1...)
 
-### 4.2 Alternative: Manual Generation
+### 4.2 Important: Seed Phrase Management
 
-Using Electrum testnet:
-1. Download [Electrum](https://electrum.org/)
-2. Run in testnet mode: `electrum --testnet`
-3. Create new wallet
-4. Generate receiving addresses
-5. Export private keys for escrow
+**Key Points:**
+- Each time you run the generator script, it creates a COMPLETELY NEW seed phrase
+- New seed = new addresses = previous addresses become inaccessible through the bot
+- Your previous seed phrase still controls its respective addresses (for manual recovery)
+
+**When to regenerate:**
+- First time setup
+- Lost your seed phrase
+- Want to start fresh with new addresses
+
+**When NOT to regenerate:**
+- Bot is already working with existing addresses
+- You have funds in current addresses
+- You're just restarting the bot
+
+**Safe Practice:**
+- Backup each seed phrase with a date/version label
+- Test new addresses with small amounts first
+- Keep record of which seed controls which addresses
 
 ## Step 5: Environment Configuration
 
