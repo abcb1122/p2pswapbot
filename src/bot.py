@@ -291,29 +291,26 @@ async def create_offer(query, user, amount, offer_type, db):
         amount_text = f"{amount:,}"
     
     if offer_type == "swapout":
-        direction = "⚡→₿"
-        action = f"Providing ⚡{amount_text}⚡sats"
-        
         success_message = f"""
 ✅ **Offer Created #{offer_id}**
 
-{direction} {action}
-Total swaps: {total_swaps}
+**Swap Out:** Lightning → Bitcoin
+**Amount:** {amount_text} sats
+**Completed swaps:** {total_swaps}
 
-Your offer is now live in @btcp2pswapoffers
-Activate with: /take {offer_id}
+Your offer is live in @btcp2pswapoffers
+Relax and wait for someone to take it
         """
     else:
-        direction = "₿→⚡"
-        action = f"Wanting ⚡{amount_text}⚡sats"
-        
         success_message = f"""
 ✅ **Offer Created #{offer_id}**
 
-{direction} {action}
-Total swaps: {total_swaps}
+**Swap In:** Bitcoin → Lightning  
+**Amount:** {amount_text} sats
+**Completed swaps:** {total_swaps}
 
-Your offer is now live in @btcp2pswapoffers
+Your offer is live in @btcp2pswapoffers
+Relax and wait for someone to take it
         """
     
     await query.edit_message_text(success_message)
@@ -332,25 +329,25 @@ async def post_to_channel(offer_id, total_swaps, amount, offer_type, amount_text
         return
     
     if offer_type == "swapout":
-        emoji = "⚡→₿"
-        action = f"Selling {amount_text} sats Lightning"
-        wants = "Wants Bitcoin onchain"
+        channel_message = f"""
+**Swap Out Offer #{offer_id}**
+
+**Offering:** {amount_text} sats Lightning
+**Seeking:** Bitcoin onchain  
+**User swaps:** {total_swaps}
+
+Take offer: /take {offer_id}
+        """
     else:
-        emoji = "₿→⚡"
-        action = f"Buying {amount_text} sats Lightning"
-        wants = "Paying Bitcoin onchain"
-    
-    # Mensaje para canal SIN username (como solicitas)
-    channel_message = f"""
-{emoji} **Offer #{offer_id}**
+        channel_message = f"""
+**Swap In Offer #{offer_id}**
 
-{action}
-{wants}
-👤 Swaps completed: {total_swaps}
+**Offering:** Bitcoin onchain
+**Seeking:** {amount_text} sats Lightning
+**User swaps:** {total_swaps}
 
-Take: /take {offer_id}
-Bot: @btcp2pswapbot
-    """
+Take offer: /take {offer_id}
+        """
     
     try:
         app = Application.builder().token(BOT_TOKEN).build()
