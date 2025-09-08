@@ -139,13 +139,6 @@ BITCOIN_ADDRESS_50K=tb1q...your_testnet_address
 BITCOIN_ADDRESS_100K=tb1q...your_testnet_address
 BITCOIN_ADDRESS_500K=tb1q...your_testnet_address
 BITCOIN_ADDRESS_1M=tb1q...your_testnet_address
-
-# Private Keys (KEEP SECURE!)
-BITCOIN_ADDRESS_10K_PRIVATE=your_private_key_hex
-BITCOIN_ADDRESS_50K_PRIVATE=your_private_key_hex
-BITCOIN_ADDRESS_100K_PRIVATE=your_private_key_hex
-BITCOIN_ADDRESS_500K_PRIVATE=your_private_key_hex
-BITCOIN_ADDRESS_1M_PRIVATE=your_private_key_hex
 ```
 
 ## Step 6: Database Setup
@@ -218,15 +211,15 @@ docker-compose logs -f
 
 ### Critical Security Steps:
 
-1. **Private Key Security**
-   - Store private keys securely
-   - Never commit private keys to git
-   - Use environment variables only
-   - Backup keys securely
+1. **Seed Phrase Security**
+   - Store 12-word mnemonic securely offline
+   - Never commit seed phrase to git
+   - Test recovery with small amounts
+   - Backup in multiple secure locations
 
 2. **Testnet Only**
    - This setup is for testnet only
-   - Never use testnet keys on mainnet
+   - Never use testnet addresses on mainnet
    - Clearly label all wallets as testnet
 
 3. **Access Control**
@@ -234,30 +227,6 @@ docker-compose logs -f
    - Use SSH keys
    - Regular security updates
    - Monitor bot activity
-
-## Troubleshooting
-
-### Common Issues:
-
-**Bot not starting:**
-- Check token in .env
-- Verify Python dependencies
-- Check logs for errors
-
-**Addresses showing placeholder:**
-- Verify .env has real addresses
-- Check environment variable names
-- Restart bot after .env changes
-
-**Channel not working:**
-- Verify bot is admin
-- Check channel ID format
-- Test with private messages first
-
-**Bitcoin addresses not working:**
-- Confirm addresses are testnet format (start with 'tb1' or 'mxxx')
-- Verify private keys match addresses
-- Test with small amounts first
 
 ## Troubleshooting
 
@@ -293,6 +262,10 @@ pip list | grep bitcoinlib
 # Test basic functionality
 python3 -c "from bitcoinlib.keys import Key; print('OK')"
 ```
+
+**Error: "Wallet with name 'p2pswap_testnet_escrow' already exists"**
+- The script should automatically clean existing wallets
+- If it persists, make sure you have the latest script version
 
 ### Bot Runtime Issues
 
@@ -331,7 +304,6 @@ python3 -c "from bitcoinlib.keys import Key; print('OK')"
 
 - **Documentation**: Check README.md
 - **Issues**: [GitHub Issues](https://github.com/abcb1122/p2pswapbot/issues)
-- **Telegram**: @abcb1122
 
 ## Next Steps
 
