@@ -3,7 +3,7 @@
 Generate Bitcoin testnet addresses for P2P Swap Bot escrow
 """
 
-from bitcoinlib import wallets, keys
+from bitcoinlib.keys import Key
 import os
 
 def generate_testnet_addresses():
@@ -18,10 +18,10 @@ def generate_testnet_addresses():
     
     for amount in amounts:
         # Generate random private key
-        private_key = keys.PrivateKey(network='testnet')
+        key = Key(network='testnet')
         
         # Get address
-        address = private_key.address()
+        address = key.address()
         
         # Store for .env file
         if amount >= 1000000:
@@ -33,7 +33,7 @@ def generate_testnet_addresses():
             
         addresses[key_name] = {
             'address': address,
-            'private_key': private_key.hex(),
+            'private_key': key.hex(),
             'amount': amount
         }
         
