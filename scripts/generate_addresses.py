@@ -58,8 +58,8 @@ def generate_testnet_addresses():
     print("=" * 70)
     
     for i, amount in enumerate(amounts):
-        # Get key at derivation path m/84'/1'/0'/0/i
-        key = wallet.get_key(account_id=0, network='testnet', change=0, address_index=i)
+        # Generate new key
+        key = wallet.new_key()
         address = key.address
         
         # Store for .env file
@@ -72,13 +72,13 @@ def generate_testnet_addresses():
             
         addresses[key_name] = {
             'address': address,
-            'derivation_path': f"m/84'/1'/0'/0/{i}",
+            'derivation_path': key.path,
             'amount': amount,
             'index': i
         }
         
         print(f"📍 {amount:,} sats: {address}")
-        print(f"   Path: m/84'/1'/0'/0/{i}")
+        print(f"   Path: {key.path}")
         print()
     
     print("📝 ADD TO YOUR .env FILE:")
