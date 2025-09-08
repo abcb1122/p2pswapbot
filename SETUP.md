@@ -214,6 +214,74 @@ docker-compose logs -f
 - Verify private keys match addresses
 - Test with small amounts first
 
+## Troubleshooting
+
+### Installation Issues
+
+**Error: "Could not find a version that satisfies the requirement bitcoinlib==0.12.0"**
+```bash
+# Solution: Use the correct version
+pip install bitcoinlib==0.7.5
+```
+
+**Error: "pip version is outdated" warnings**
+```bash
+# Update pip first
+pip install --upgrade pip
+# Then install requirements
+pip install -r requirements.txt
+```
+
+**Error: "AttributeError: module 'bitcoinlib.keys' has no attribute 'PrivateKey'"**
+- This indicates an outdated script version
+- Make sure you have the latest version from GitHub
+- The script should use `Key()` not `PrivateKey()`
+
+### Address Generation Issues
+
+**Script crashes during address generation:**
+```bash
+# Verify bitcoinlib is installed correctly
+pip list | grep bitcoinlib
+# Should show: bitcoinlib 0.7.5
+
+# Test basic functionality
+python3 -c "from bitcoinlib.keys import Key; print('OK')"
+```
+
+### Bot Runtime Issues
+
+**Bot shows placeholder addresses:**
+- Verify .env file has real addresses, not placeholders
+- Check that environment variable names match exactly
+- Restart bot after making .env changes
+
+**"Authentication failed" when pushing to GitHub:**
+- Use Personal Access Token instead of password
+- Get token from GitHub Settings → Developer settings → Personal access tokens
+
+### Common Issues:
+
+**Bot not starting:**
+- Check token in .env
+- Verify Python dependencies
+- Check logs for errors
+
+**Addresses showing placeholder:**
+- Verify .env has real addresses
+- Check environment variable names
+- Restart bot after .env changes
+
+**Channel not working:**
+- Verify bot is admin
+- Check channel ID format
+- Test with private messages first
+
+**Bitcoin addresses not working:**
+- Confirm addresses are testnet format (start with 'tb1' or 'mxxx')
+- Verify private keys match addresses
+- Test with small amounts first
+
 ## Support
 
 - **Documentation**: Check README.md
