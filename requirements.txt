@@ -1,4 +1,139 @@
-python-telegram-bot==20.7
+# ===============================================================================
+# P2P SWAP BOT - DEPENDENCIAS DE PYTHON
+# ===============================================================================
+# Versión optimizada para producción y desarrollo
+# Versiones específicas para estabilidad y compatibilidad
+
+# ===============================================================================
+# TELEGRAM BOT FRAMEWORK
+# ===============================================================================
+# Framework principal para bot de Telegram
+python-telegram-bot==21.3
+
+# ===============================================================================
+# BITCOIN Y BLOCKCHAIN
+# ===============================================================================
+# Librería principal para operaciones Bitcoin
 bitcoinlib==0.12.0
-python-dotenv==1.0.0
+
+# HTTP requests para APIs de blockchain (Blockstream, etc.)
+requests==2.31.0
+
+# Validación y manipulación de direcciones Bitcoin adicional
+bitcoin==1.1.42
+
+# ===============================================================================
+# BASE DE DATOS
+# ===============================================================================
+# ORM principal para manejo de base de datos
 sqlalchemy==2.0.23
+
+# Driver para PostgreSQL (opcional, para producción)
+# psycopg2-binary==2.9.7
+
+# ===============================================================================
+# CONFIGURACIÓN Y ENTORNO
+# ===============================================================================
+# Manejo de variables de entorno
+python-dotenv==1.0.0
+
+# ===============================================================================
+# UTILIDADES GENERALES
+# ===============================================================================
+# Parsing y validación de fechas
+python-dateutil==2.8.2
+
+# Generación de UUIDs y hashes
+hashlib-compat==1.0.1
+
+# JSON schema validation (para APIs)
+jsonschema==4.17.3
+
+# ===============================================================================
+# LIGHTNING NETWORK (OPCIONAL)
+# ===============================================================================
+# Para integración Lightning futura
+# lnd-grpc==0.4.0
+# python-clightning==0.2.1
+
+# Decodificación de invoices Lightning
+# lightning-invoice==0.3.0
+
+# ===============================================================================
+# TESTING Y DESARROLLO
+# ===============================================================================
+# Framework de testing
+pytest==7.4.0
+pytest-asyncio==0.21.1
+
+# Coverage de tests
+pytest-cov==4.1.0
+
+# Mocking para tests
+pytest-mock==3.11.1
+
+# ===============================================================================
+# LOGGING Y MONITOREO
+# ===============================================================================
+# Logging estructurado
+structlog==23.1.0
+
+# Métricas y monitoreo
+prometheus-client==0.17.1
+
+# ===============================================================================
+# SEGURIDAD
+# ===============================================================================
+# Hashing seguro y derivación de claves
+cryptography==41.0.3
+
+# Validación de entrada
+bleach==6.0.0
+
+# ===============================================================================
+# PERFORMANCE Y OPTIMIZACIÓN
+# ===============================================================================
+# Cache en memoria
+cachetools==5.3.1
+
+# Pool de conexiones HTTP
+urllib3==2.0.4
+
+# ===============================================================================
+# DESARROLLO Y DEBUGGING
+# ===============================================================================
+# Debugging avanzado
+ipdb==0.13.13
+
+# Profiling de performance
+memory-profiler==0.61.0
+
+# Linting y formato de código
+black==23.7.0
+flake8==6.0.0
+
+# ===============================================================================
+# NOTAS DE VERSIONES
+# ===============================================================================
+# 
+# VERSIONES FIJAS VS RANGOS:
+# - Usamos versiones exactas para estabilidad en producción
+# - Para desarrollo local puedes usar >= para versiones más recientes
+# 
+# DEPENDENCIAS OPCIONALES:
+# - PostgreSQL: Descomentar psycopg2-binary para producción
+# - Lightning: Descomentar librerías LN cuando estén listas
+# - Monitoring: prometheus-client solo para métricas avanzadas
+# 
+# ACTUALIZACIÓN:
+# - pip install --upgrade pip
+# - pip install -r requirements.txt
+# 
+# DESARROLLO:
+# - pip install -r requirements.txt
+# - pip install -e .
+# 
+# PRODUCCIÓN:
+# - pip install --no-dev -r requirements.txt
+# 
+# ===============================================================================
