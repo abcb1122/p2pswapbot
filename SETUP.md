@@ -49,12 +49,44 @@ pip install -r requirements.txt
 
 ### 4.1 Generate Escrow Addresses
 
-Run the address generator:
+Run the mnemonic-based address generator:
 ```bash
 python scripts/generate_addresses.py
 ```
 
-This will output testnet addresses and private keys.
+**CRITICAL: This will generate a 12-word mnemonic seed phrase**
+
+The script will output:
+- 12-word mnemonic seed (BACKUP SECURELY)
+- 5 derived testnet addresses (tb1... format)
+- BIP84 derivation paths
+- Security warnings and backup checklist
+
+**Security Requirements:**
+- Write down the 12 words immediately
+- Store in multiple secure offline locations
+- Never take photos or screenshots
+- Test recovery with small amounts first
+- The seed phrase controls ALL addresses
+
+**Example output:**
+```
+🔐 MNEMONIC SEED - BACKUP THESE 12 WORDS:
+word1 word2 word3 word4 word5 word6 word7 word8 word9 word10 word11 word12
+
+📍 DERIVED ADDRESSES (BIP84 - Native SegWit):
+10,000 sats: tb1q...
+50,000 sats: tb1q...
+100,000 sats: tb1q...
+500,000 sats: tb1q...
+1,000,000 sats: tb1q...
+```
+
+**Recovery Information:**
+- Standard: BIP84 (Native SegWit)
+- Derivation: m/84'/1'/0'/0/x
+- Network: testnet
+- Format: bech32 (tb1...)
 
 ### 4.2 Alternative: Manual Generation
 
