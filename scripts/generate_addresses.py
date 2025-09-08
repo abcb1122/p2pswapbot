@@ -13,6 +13,25 @@ def generate_testnet_addresses():
     print("🔑 Generating Bitcoin testnet addresses for P2P Swap Bot")
     print("=" * 70)
     
+    print("🔄 WALLET GENERATION NOTICE:")
+    print("=" * 70)
+    print("⚠️  This script will generate a NEW seed phrase and addresses")
+    print("⚠️  If you previously generated a seed, those addresses will be different")
+    print("⚠️  Only the NEWEST seed phrase will control the bot's addresses")
+    print("⚠️  Previous seed phrases remain valid for their respective addresses")
+    print()
+    
+    # Force cleanup of any existing wallets
+    try:
+        # Get list of all wallets and delete any that start with p2pswap
+        all_wallets = Wallet.list_wallets()
+        existing_wallets = [w for w in all_wallets if 'p2pswap' in w.lower()]
+        for wallet_name_existing in existing_wallets:
+            Wallet.delete(wallet_name_existing)
+            print(f"🧹 Deleted existing wallet: {wallet_name_existing}")
+    except Exception as e:
+        print(f"🧹 Cleaning existing wallets: {e}")
+    
     # Generate 12-word mnemonic seed
     mnemonic_obj = Mnemonic('english')
     mnemonic = mnemonic_obj.generate(strength=128)  # 128 bits = 12 words
@@ -33,13 +52,6 @@ def generate_testnet_addresses():
     
     # Create wallet from mnemonic
     wallet_name = 'p2pswap_testnet_escrow'
-    
-    # Remove wallet if it exists (for clean generation)
-    try:
-        if Wallet.exists(wallet_name):
-            Wallet.delete(wallet_name)
-    except:
-        pass
     
     # Create new wallet
     wallet = Wallet.create(
@@ -106,7 +118,16 @@ def generate_testnet_addresses():
     print("☐ Test recovery with small amount")
     print("☐ Never take photo or screenshot")
     
-    # Clean up wallet
+    print()
+    print("🔄 REGENERATION WARNING:")
+    print("=" * 70)
+    print("If you run this script again, it will create DIFFERENT addresses")
+    print("Keep this seed phrase safe - it's the only way to control these addresses")
+    print("Date generated:", end=" ")
+    import datetime
+    print(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+    
+    # Clean up wallet from memory (but addresses remain accessible via seed)
     try:
         Wallet.delete(wallet_name)
     except:
