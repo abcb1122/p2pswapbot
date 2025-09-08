@@ -18,6 +18,16 @@ A Telegram bot for peer-to-peer Lightning Network ⚡ and Bitcoin onchain swaps 
 
 ## 🚀 Quick Start
 
+## 📋 Complete Setup Guide
+
+For detailed setup instructions, see [SETUP.md](SETUP.md)
+
+This guide covers:
+- Telegram bot configuration
+- Bitcoin testnet setup
+- Environment variables
+- Testing and troubleshooting
+
 ### Prerequisites
 
 - Python 3.9+
