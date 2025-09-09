@@ -29,6 +29,7 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Cont
 # Importar modelos de base de datos
 from database.models import get_db, User, Offer, Deal, create_tables
 
+
 # Cargar variables de entorno
 load_dotenv()
 
