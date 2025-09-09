@@ -75,15 +75,12 @@ FIXED_ADDRESSES = {
     100000: os.getenv('BITCOIN_ADDRESS_100K')   # Dirección para 100k sats
 }
 
-# Configuración de tiempos granulares - TIMEOUTS POR ETAPA
-OFFER_VISIBILITY_HOURS = 48        # Ofertas visibles en canal por 48 horas
-TXID_TIMEOUT_MINUTES = 30          # Tiempo para enviar TXID tras aceptar deal
-BITCOIN_CONFIRMATION_HOURS = 48    # Máximo tiempo para 3 confirmaciones Bitcoin
-LIGHTNING_INVOICE_HOURS = 2        # Tiempo para enviar Lightning invoice
-LIGHTNING_PAYMENT_HOURS = 2        # Tiempo para pagar Lightning invoice
-CONFIRMATION_COUNT = 3             # Confirmaciones Bitcoin requeridas
-CONFIRMATION_CHECK_MINUTES = 10    # Verificar confirmaciones cada 10 minutos
-BATCH_WAIT_MINUTES = 60            # Tiempo máximo para batch Bitcoin (o mín 3 requests)
+# Configuración de tiempos - AJUSTAR SEGÚN NECESIDADES
+DEAL_EXPIRY_HOURS = 2           # Deals expiran en 2 horas
+CONFIRMATION_COUNT = 3          # Confirmaciones Bitcoin requeridas
+BATCH_WAIT_MINUTES = 60         # Tiempo máximo para batch Bitcoin
+LIGHTNING_TIMEOUT_MINUTES = 2   # Override Lightning para testing (cambiar a 30 en producción)
+
 # Configurar logging
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -299,8 +296,8 @@ async def create_offer(query, user, amount, offer_type, db):
         offer_type=offer_type,
         amount_sats=amount,
         rate=1.0,
-        status='active',
-        expires_at=datetime.utcnow() + timedelta(hours=OFFER_VISIBILITY_HOURS)    )
+        status='active'
+    )
     
     db.add(new_offer)
     db.commit()
@@ -542,10 +539,8 @@ async def accept_deal(query, user, deal_id, db):
     # Actualizar estado del deal
     deal.status = 'accepted'
     deal.accepted_at = datetime.utcnow()
-    deal.current_stage = 'txid_required'
-    deal.stage_expires_at = datetime.utcnow() + timedelta(minutes=TXID_TIMEOUT_MINUTES)
-    deal.offer_expires_at = datetime.utcnow() + timedelta(hours=OFFER_VISIBILITY_HOURS)
-    db.commit()    
+    db.commit()
+    
     # Obtener dirección fija para este monto
     fixed_address = FIXED_ADDRESSES.get(deal.amount_sats, "ADDRESS_NOT_CONFIGURED")
     
@@ -649,9 +644,8 @@ Example: /txid abc123def456...
     # Actualizar deal con TXID
     deal.buyer_bitcoin_txid = txid
     deal.status = 'bitcoin_sent'
-    deal.current_stage = 'confirming_bitcoin'
-    deal.stage_expires_at = datetime.utcnow() + timedelta(hours=BITCOIN_CONFIRMATION_HOURS)
-    db.commit()    
+    db.commit()
+    
     # Formatear monto
     amount = deal.amount_sats
     if amount >= 1000000:
@@ -757,48 +751,32 @@ Bot will verify payment and complete the swap.
     """, parse_mode='Markdown')
     
     # Paso 14: Notificar a Ana para pagar la factura con retry
-    # Paso 14: Notificar a Ana para pagar la factura con retry - MENSAJE 1 (Instrucciones)
-    instructions_message = f"""
+    seller_message = f"""
 🔔 **Payment Required - Deal #{deal.id}**
+
+Your escrow funds are secured. Please pay this Lightning invoice:
+
+`{invoice}`
 
 **Amount:** {amount_text} sats
 **Time limit:** 30 minutes ⏰
-
-Your Lightning invoice will arrive in the next message for easy copying.
 
 After payment:
 - Buyer receives Lightning instantly  
 - You'll provide Bitcoin address
 - Bot sends you Bitcoin in next batch
     """
-
-    # Enviar primer mensaje con instrucciones
-    success_instructions = await send_message_with_retry(
+    
+    success = await send_message_with_retry(
         context=context,
         chat_id=seller_id,
-        text=instructions_message
+        text=seller_message
     )
-
-    if not success_instructions:
-        logger.critical(f"CRITICAL: Failed to notify seller {seller_id} for deal {deal.id} - instructions message failed")
-
-    # MENSAJE 2 (Solo el invoice)
-    invoice_message = f"`{invoice}`"
-
-    # Enviar segundo mensaje con solo el invoice
-    success_invoice = await send_message_with_retry(
-        context=context,
-        chat_id=seller_id,
-        text=invoice_message
-    )
-
-    if not success_invoice:
-        logger.critical(f"CRITICAL: Failed to send Lightning invoice to seller {seller_id} for deal {deal.id}")
-
-    # Verificar que al menos uno de los mensajes se envió
-    if not success_instructions and not success_invoice:
+    
+    if not success:
         # Critical notification failed - log for manual intervention
-        logger.critical(f"CRITICAL: Both instruction and invoice messages failed for seller {seller_id} deal {deal.id}")        # Could add to failed notifications queue here in future
+        logger.critical(f"CRITICAL: Failed to notify seller {seller_id} for deal {deal.id} after all retries")
+        # Could add to failed notifications queue here in future
 
 # =============================================================================
 # SECCIÓN 8: DIRECCIÓN BITCOIN (/address) - PASO 15-16 DEL FLUJO
@@ -1040,10 +1018,10 @@ async def monitor_confirmations():
             
             # Buscar deals esperando confirmaciones
             pending_deals = db.query(Deal).filter(
-                Deal.current_stage == 'confirming_bitcoin',
-                Deal.buyer_bitcoin_txid.isnot(None),
-                Deal.stage_expires_at > datetime.utcnow()
-            ).all()            
+                Deal.status == 'bitcoin_sent',
+                Deal.buyer_bitcoin_txid.isnot(None)
+            ).all()
+            
             for deal in pending_deals:
                 txid = deal.buyer_bitcoin_txid
                 
@@ -1060,9 +1038,8 @@ async def monitor_confirmations():
                 if confirmations >= CONFIRMATION_COUNT:
                     # Actualizar estado del deal
                     deal.status = 'bitcoin_confirmed'
-                    deal.current_stage = 'invoice_required'
-                    deal.stage_expires_at = datetime.utcnow() + timedelta(hours=LIGHTNING_INVOICE_HOURS)
-                    db.commit()                    
+                    db.commit()
+                    
                     logger.info(f"Deal {deal.id}: Bitcoin confirmed! Requesting Lightning invoice")
                     
                     # Notificar a Carlos para proporcionar Lightning invoice

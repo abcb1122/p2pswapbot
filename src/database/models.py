@@ -161,6 +161,17 @@ class Deal(Base):
     last_updated = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     error_count = Column(Integer, default=0)    # Contador de errores para debugging
     notes = Column(String(500))                 # Notas internas del sistema
+
+    # =============================================================================
+    # NUEVOS CAMPOS PARA TIMEOUTS GRANULARES
+    # =============================================================================
+
+    # Control de etapa actual y timeout específico
+    current_stage = Column(String(30), default='pending')      # Etapa actual del deal
+    stage_expires_at = Column(DateTime, index=True)         # Timeout de la etapa actual
+    offer_expires_at = Column(DateTime, index=True)         # Timeout de oferta original (48h)
+    stage_warnings_sent = Column(Integer, default=0)       # Avisos de timeout enviados
+    timeout_reason = Column(String(100))                   # Razón del timeout si ocurre
     
     def __repr__(self):
         return f"<Deal(id={self.id}, seller={self.seller_id}, buyer={self.buyer_id}, amount={self.amount_sats}, status={self.status})>"
