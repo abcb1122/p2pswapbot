@@ -955,7 +955,20 @@ Browse: /offers
         
         message += f"#{deal.id} - {direction} {amount_text} sats\n"
         message += f"Role: {role}\n"
-        message += f"Status: {deal.status.replace('_', ' ').title()} {status_emoji}\n\n"
+        # Add real-time confirmation checking
+        status_text = deal.status.replace('_', ' ').title()
+        if deal.status == 'bitcoin_sent' and deal.buyer_bitcoin_txid:
+            try:
+                from bitcoin_utils import get_confirmations
+                current_confirmations = get_confirmations(deal.buyer_bitcoin_txid)
+                status_text = f"Bitcoin Sent ({current_confirmations}/3 confirmations)"
+                if current_confirmations < 3:
+                    remaining = 3 - current_confirmations
+                    status_text += f"\nNext: Waiting {remaining} more confirmation{'s' if remaining != 1 else ''}"
+            except Exception:
+                status_text = "Bitcoin Sent (checking confirmations...)"
+        
+        message += f"Status: {status_text} {status_emoji}\n\n"
     
     db.close()
     await update.message.reply_text(message, parse_mode='Markdown')
