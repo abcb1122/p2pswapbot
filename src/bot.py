@@ -292,22 +292,22 @@ async def create_offer(query, user, amount, offer_type, db):
     
     if offer_type == "swapout":
         success_message = f"""
-✅ **Offer Created #{offer_id}**
+✅ Offer Created #{offer_id}
 
-**Swap Out:** Lightning → Bitcoin
-**Amount:** {amount_text} sats
-**Completed swaps:** {total_swaps}
+Swap Out: Lightning → Bitcoin
+Amount: {amount_text} sats
+Completed swaps: {total_swaps}
 
 Your offer is live in @btcp2pswapoffers
 Relax and wait for someone to take it
         """
     else:
         success_message = f"""
-✅ **Offer Created #{offer_id}**
+✅ Offer Created #{offer_id}
 
-**Swap In:** Bitcoin → Lightning  
-**Amount:** {amount_text} sats
-**Completed swaps:** {total_swaps}
+Swap In: Bitcoin → Lightning  
+Amount: {amount_text} sats
+Completed swaps: {total_swaps}
 
 Your offer is live in @btcp2pswapoffers
 Relax and wait for someone to take it
