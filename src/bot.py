@@ -531,30 +531,25 @@ async def accept_deal(query, user, deal_id, db):
     
     # Paso 11: Primer mensaje con dirección Bitcoin
     await query.edit_message_text(f"""
-💰 **Bitcoin Deposit Required - Deal #{deal_id}**
+💰 Bitcoin Deposit Required - Deal #{deal_id}
 
-Send exactly **{amount_text} sats** to:
+Send exactly {amount_text} sats to this address:
+    """, parse_mode='Markdown')
+    
+    # Send address separately for easy copying
+    await query.message.reply_text(f"""
 `{fixed_address}`
-
-⚠️ **CRITICAL:**
-- Send EXACTLY {amount_text} sats
-- Wrong amount = lost funds
-- Use this address only
-
-After sending, report your transaction ID.
     """, parse_mode='Markdown')
     
     # Segundo mensaje con instrucciones de /txid
     await query.message.reply_text(f"""
-🔍 **Next Step - Report Transaction**
+Next step: Report your TXID
 
-After sending Bitcoin to the address above:
+Send {amount_text} sats to the address shared above and submit the transaction ID using /txid abc1234567
 
-**Use:** /txid [your_transaction_id]
-**Example:** /txid abc123def456...
+Critical: Send the exact amount or risk losing your funds.
 
-We need 3 confirmations before proceeding.
-**Estimated time:** 30 minutes ⏰
+Once the tx gets 3 confirmations you will receive a new message to send a Lightning Network invoice.
     """)
 
 async def cancel_deal(query, user, deal_id, db):
