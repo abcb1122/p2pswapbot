@@ -178,9 +178,9 @@ async def swapout(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     # Crear botones para cada monto disponible
     for amount in AMOUNTS:
         if amount >= 1000000:
-            text = f"{amount//1000000}M"
+            text = f"{amount:,}"
         elif amount >= 1000:
-            text = f"{amount//1000}k"
+            text = f"{amount:,}"
         else:
             text = str(amount)
             
@@ -199,9 +199,9 @@ async def swapin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     
     for amount in AMOUNTS:
         if amount >= 1000000:
-            text = f"{amount//1000000}M"
+            text = f"{amount:,}"
         elif amount >= 1000:
-            text = f"{amount//1000}k"
+            text = f"{amount:,}"
         else:
             text = str(amount)
             
@@ -284,9 +284,9 @@ async def create_offer(query, user, amount, offer_type, db):
     
     # Formatear monto para mostrar
     if amount >= 1000000:
-        amount_text = f"{amount//1000000}M"
+        amount_text = f"{amount:,}"
     elif amount >= 1000:
-        amount_text = f"{amount//1000}k"
+        amount_text = f"{amount:,}"
     else:
         amount_text = f"{amount:,}"
     
@@ -447,9 +447,9 @@ See offers: /offers
     # Formatear monto
     amount = offer_amount  # Use extracted value
     if amount >= 1000000:
-        amount_text = f"{amount//1000000}M"
+        amount_text = f"{amount:,}"
     elif amount >= 1000:
-        amount_text = f"{amount//1000}k"
+        amount_text = f"{amount:,}"
     else:
         amount_text = f"{amount:,}"
     
@@ -521,9 +521,9 @@ async def accept_deal(query, user, deal_id, db):
     # Formatear monto
     amount = deal.amount_sats
     if amount >= 1000000:
-        amount_text = f"{amount//1000000}M"
+        amount_text = f"{amount:,}"
     elif amount >= 1000:
-        amount_text = f"{amount//1000}k"
+        amount_text = f"{amount:,}"
     else:
         amount_text = f"{amount:,}"
     
@@ -628,9 +628,9 @@ Example: /txid abc123def456...
     # Formatear monto
     amount = deal.amount_sats
     if amount >= 1000000:
-        amount_text = f"{amount//1000000}M"
+        amount_text = f"{amount:,}"
     elif amount >= 1000:
-        amount_text = f"{amount//1000}k"
+        amount_text = f"{amount:,}"
     else:
         amount_text = f"{amount:,}"
     
@@ -707,9 +707,9 @@ Example: /invoice lnbc100u1p3xnhl2pp5...
     # Formatear monto
     amount = deal.amount_sats
     if amount >= 1000000:
-        amount_text = f"{amount//1000000}M"
+        amount_text = f"{amount:,}"
     elif amount >= 1000:
-        amount_text = f"{amount//1000}k"
+        amount_text = f"{amount:,}"
     else:
         amount_text = f"{amount:,}"
     
@@ -800,9 +800,9 @@ Example: /address tb1q...
     
     amount = deal.amount_sats
     if amount >= 1000000:
-        amount_text = f"{amount//1000000}M"
+        amount_text = f"{amount:,}"
     elif amount >= 1000:
-        amount_text = f"{amount//1000}k"
+        amount_text = f"{amount:,}"
     else:
         amount_text = f"{amount:,}"
     
@@ -857,9 +857,9 @@ Channel: @btcp2pswapoffers
         # Formatear monto
         amount = offer.amount_sats
         if amount >= 1000000:
-            amount_text = f"{amount//1000000}M"
+            amount_text = f"{amount:,}"
         elif amount >= 1000:
-            amount_text = f"{amount//1000}k"
+            amount_text = f"{amount:,}"
         else:
             amount_text = f"{amount:,}"
         
@@ -936,9 +936,9 @@ Browse: /offers
         # Formatear monto
         amount = deal.amount_sats
         if amount >= 1000000:
-            amount_text = f"{amount//1000000}M"
+            amount_text = f"{amount:,}"
         elif amount >= 1000:
-            amount_text = f"{amount//1000}k"
+            amount_text = f"{amount:,}"
         else:
             amount_text = f"{amount:,}"
         
@@ -1009,9 +1009,9 @@ async def monitor_confirmations():
                     
                     amount = deal.amount_sats
                     if amount >= 1000000:
-                        amount_text = f"{amount//1000000}M"
+                        amount_text = f"{amount:,}"
                     elif amount >= 1000:
-                        amount_text = f"{amount//1000}k"
+                        amount_text = f"{amount:,}"
                     else:
                         amount_text = f"{amount:,}"
                     
@@ -1093,9 +1093,9 @@ async def monitor_lightning_payments():
                     
                     amount = deal.amount_sats
                     if amount >= 1000000:
-                        amount_text = f"{amount//1000000}M"
+                        amount_text = f"{amount:,}"
                     elif amount >= 1000:
-                        amount_text = f"{amount//1000}k"
+                        amount_text = f"{amount:,}"
                     else:
                         amount_text = f"{amount:,}"
                     
@@ -1275,9 +1275,9 @@ async def notify_sellers_batch_sent(deals, txid):
     for deal in deals:
         amount = deal.amount_sats
         if amount >= 1000000:
-            amount_text = f"{amount//1000000}M"
+            amount_text = f"{amount:,}"
         elif amount >= 1000:
-            amount_text = f"{amount//1000}k"
+            amount_text = f"{amount:,}"
         else:
             amount_text = f"{amount:,}"
         
