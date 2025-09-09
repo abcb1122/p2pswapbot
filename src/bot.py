@@ -465,25 +465,25 @@ See offers: /offers
         reply_markup = InlineKeyboardMarkup(keyboard)
         
         await update.message.reply_text(f"""
-🤝 **Deal #{deal_id} Started**
+🤝 Deal #{offer_id} Started
 
-**Your role:** Lightning Buyer ⚡
-**You get:** {amount_text} Lightning sats
-**You pay:** {amount_text} Bitcoin sats
-**Operation time:** Up to 60 minutes ⏰
+Your role: Lightning Buyer ⚡
+You get: {amount_text} Lightning sats
+You pay: {amount_text} sats on-chain
+Operation time: 60 minutes starting now ⏰
 
-⚠️ **IMPORTANT WARNINGS:**
+⚠️ IMPORTANT WARNINGS:
 - Send EXACT amounts or risk losing sats
 - This operation cannot be cancelled once started
 - Follow instructions carefully
 
-**Expires:** {DEAL_EXPIRY_HOURS} hours ⏱️
+Expires: {DEAL_EXPIRY_HOURS} hours ⏱️
         """, reply_markup=reply_markup)
         
     else:
         # Swap in - flujo diferente (no implementado completamente en tu solicitud)
         await update.message.reply_text(f"""
-🤝 **Deal #{deal_id} Started**
+🤝 Deal #{offer_id} Started
 
 Swap in functionality - To be implemented
         """)
