@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 ===============================================================================
-P2P SWAP BOT - Bot de Telegram para intercambios Lightning <-> Bitcoin onchain
+P2P SWAP BOT - Bot de Telegram para intercambios Lightning <-> Bitcoin on-chain
 ===============================================================================
 
 FLUJO SWAP OUT (Lightning → Bitcoin):
@@ -333,20 +333,20 @@ async def post_to_channel(offer_id, total_swaps, amount, offer_type, amount_text
 **Swap Out Offer #{offer_id}**
 
 **Offering:** {amount_text} sats Lightning
-**Seeking:** Bitcoin onchain  
+**Seeking:** Bitcoin on-chain  
 **User swaps:** {total_swaps}
 
-Take offer: /take {offer_id}
+Activate this order sending the command /take {offer_id} to @btcp2pswapbot
         """
     else:
         channel_message = f"""
 **Swap In Offer #{offer_id}**
 
-**Offering:** Bitcoin onchain
+**Offering:** Bitcoin on-chain
 **Seeking:** {amount_text} sats Lightning
 **User swaps:** {total_swaps}
 
-Take offer: /take {offer_id}
+Activate this order sending the command /take {offer_id} to @btcp2pswapbot
         """
     
     try:
