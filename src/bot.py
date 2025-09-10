@@ -21,30 +21,6 @@ import os
 import logging
 import asyncio
 import time
-
-async def send_message_with_retry(context, chat_id, text, parse_mode='Markdown', max_retries=3):
-    """
-    Send message with retry logic for critical notifications
-    """
-    for attempt in range(max_retries):
-        try:
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text=text,
-                parse_mode=parse_mode
-            )
-            logger.info(f'Message sent successfully to {chat_id} on attempt {attempt + 1}')
-            return True
-        except Exception as e:
-            logger.warning(f'Failed to send message to {chat_id} on attempt {attempt + 1}: {e}')
-            if attempt < max_retries - 1:
-                delay = 2 ** attempt  # Exponential backoff: 1s, 2s, 4s
-                logger.info(f'Retrying in {delay} seconds...')
-                await asyncio.sleep(delay)
-            else:
-                logger.error(f'All {max_retries} attempts failed to send message to {chat_id}')
-                return False
-    return False
 import threading
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
@@ -53,7 +29,6 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Cont
 
 # Importar modelos de base de datos
 from database.models import get_db, User, Offer, Deal, create_tables
-
 
 # Cargar variables de entorno
 load_dotenv()
@@ -84,12 +59,41 @@ LIGHTNING_PAYMENT_HOURS = 2        # Tiempo para pagar Lightning invoice
 CONFIRMATION_COUNT = 3             # Confirmaciones Bitcoin requeridas
 CONFIRMATION_CHECK_MINUTES = 10    # Verificar confirmaciones cada 10 minutos
 BATCH_WAIT_MINUTES = 60            # Tiempo máximo para batch Bitcoin (o mín 3 requests)
+
 # Configurar logging
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
+
+# =============================================================================
+# UTILIDADES DE MESSAGING CON RETRY
+# =============================================================================
+
+async def send_message_with_retry(context, chat_id, text, parse_mode='Markdown', max_retries=3):
+    """
+    Send message with retry logic for critical notifications
+    """
+    for attempt in range(max_retries):
+        try:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=text,
+                parse_mode=parse_mode
+            )
+            logger.info(f'Message sent successfully to {chat_id} on attempt {attempt + 1}')
+            return True
+        except Exception as e:
+            logger.warning(f'Failed to send message to {chat_id} on attempt {attempt + 1}: {e}')
+            if attempt < max_retries - 1:
+                delay = 2 ** attempt  # Exponential backoff: 1s, 2s, 4s
+                logger.info(f'Retrying in {delay} seconds...')
+                await asyncio.sleep(delay)
+            else:
+                logger.error(f'All {max_retries} attempts failed to send message to {chat_id}')
+                return False
+    return False
 
 # =============================================================================
 # SECCIÓN 1: COMANDOS BÁSICOS (/start, /help, /profile)
@@ -206,13 +210,7 @@ async def swapout(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     
     # Crear botones para cada monto disponible
     for amount in AMOUNTS:
-        if amount >= 1000000:
-            text = f"{amount:,}"
-        elif amount >= 1000:
-            text = f"{amount:,}"
-        else:
-            text = str(amount)
-            
+        text = f"{amount:,}"
         keyboard.append([InlineKeyboardButton(text, callback_data=f"swapout_{amount}")])
     
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -227,13 +225,7 @@ async def swapin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     keyboard = []
     
     for amount in AMOUNTS:
-        if amount >= 1000000:
-            text = f"{amount:,}"
-        elif amount >= 1000:
-            text = f"{amount:,}"
-        else:
-            text = str(amount)
-            
+        text = f"{amount:,}"
         keyboard.append([InlineKeyboardButton(text, callback_data=f"swapin_{amount}")])
     
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -300,7 +292,8 @@ async def create_offer(query, user, amount, offer_type, db):
         amount_sats=amount,
         rate=1.0,
         status='active',
-        expires_at=datetime.utcnow() + timedelta(hours=OFFER_VISIBILITY_HOURS)    )
+        expires_at=datetime.utcnow() + timedelta(hours=OFFER_VISIBILITY_HOURS)
+    )
     
     db.add(new_offer)
     db.commit()
@@ -312,12 +305,7 @@ async def create_offer(query, user, amount, offer_type, db):
     db.close()
     
     # Formatear monto para mostrar
-    if amount >= 1000000:
-        amount_text = f"{amount:,}"
-    elif amount >= 1000:
-        amount_text = f"{amount:,}"
-    else:
-        amount_text = f"{amount:,}"
+    amount_text = f"{amount:,}"
     
     if offer_type == "swapout":
         success_message = f"""
@@ -458,14 +446,16 @@ See offers: /offers
     offer.taken_by = user.id
     offer.taken_at = datetime.utcnow()
     
-    # Crear deal con expiración
+    # Crear deal con timeouts granulares
     new_deal = Deal(
         offer_id=offer.id,
         seller_id=offer.user_id if offer_type == 'swapout' else user.id,
         buyer_id=user.id if offer_type == 'swapout' else offer.user_id,
         amount_sats=offer_amount,
         status='pending',
-        expires_at=datetime.utcnow() + timedelta(hours=DEAL_EXPIRY_HOURS)
+        current_stage='pending',
+        stage_expires_at=datetime.utcnow() + timedelta(minutes=TXID_TIMEOUT_MINUTES),
+        offer_expires_at=datetime.utcnow() + timedelta(hours=OFFER_VISIBILITY_HOURS)
     )
     
     db.add(new_deal)
@@ -474,13 +464,8 @@ See offers: /offers
     db.close()
     
     # Formatear monto
-    amount = offer_amount  # Use extracted value
-    if amount >= 1000000:
-        amount_text = f"{amount:,}"
-    elif amount >= 1000:
-        amount_text = f"{amount:,}"
-    else:
-        amount_text = f"{amount:,}"
+    amount = offer_amount
+    amount_text = format_amount(amount)
     
     if offer_type == 'swapout':
         # Carlos está comprando Lightning, debe depositar Bitcoin
@@ -506,7 +491,7 @@ Operation time: 60 minutes starting now ⏰
 - This operation cannot be cancelled once started
 - Follow instructions carefully
 
-Expires: {DEAL_EXPIRY_HOURS} hours ⏱️
+You have {TXID_TIMEOUT_MINUTES} minutes to accept and send TXID ⏱️
         """, reply_markup=reply_markup)
         
     else:
@@ -539,24 +524,19 @@ async def accept_deal(query, user, deal_id, db):
         await query.edit_message_text(f"❌ Deal #{deal_id} already processed")
         return
     
-    # Actualizar estado del deal
+    # Actualizar estado del deal con timeouts
     deal.status = 'accepted'
     deal.accepted_at = datetime.utcnow()
     deal.current_stage = 'txid_required'
     deal.stage_expires_at = datetime.utcnow() + timedelta(minutes=TXID_TIMEOUT_MINUTES)
-    deal.offer_expires_at = datetime.utcnow() + timedelta(hours=OFFER_VISIBILITY_HOURS)
-    db.commit()    
+    db.commit()
+    
     # Obtener dirección fija para este monto
     fixed_address = FIXED_ADDRESSES.get(deal.amount_sats, "ADDRESS_NOT_CONFIGURED")
     
     # Formatear monto
     amount = deal.amount_sats
-    if amount >= 1000000:
-        amount_text = f"{amount:,}"
-    elif amount >= 1000:
-        amount_text = f"{amount:,}"
-    else:
-        amount_text = f"{amount:,}"
+    amount_text = f"{amount:,}"
     
     db.close()
     
@@ -580,6 +560,8 @@ Send {amount_text} sats to the address shared above and submit the transaction I
 
 Critical: Send the exact amount or risk losing your funds.
 
+You have {TXID_TIMEOUT_MINUTES} minutes to send TXID.
+
 Once the tx gets 3 confirmations you will receive a new message to send a Lightning Network invoice.
     """)
 
@@ -596,6 +578,7 @@ async def cancel_deal(query, user, deal_id, db):
     
     # Cancelar deal y reactivar oferta
     deal.status = 'cancelled'
+    deal.timeout_reason = 'User cancelled'
     
     offer = db.query(Offer).filter(Offer.id == deal.offer_id).first()
     if offer:
@@ -646,20 +629,16 @@ Example: /txid abc123def456...
         await update.message.reply_text("❌ No active deal found requiring Bitcoin deposit")
         return
     
-    # Actualizar deal con TXID
+    # Actualizar deal con TXID y timeouts
     deal.buyer_bitcoin_txid = txid
     deal.status = 'bitcoin_sent'
     deal.current_stage = 'confirming_bitcoin'
     deal.stage_expires_at = datetime.utcnow() + timedelta(hours=BITCOIN_CONFIRMATION_HOURS)
-    db.commit()    
+    db.commit()
+    
     # Formatear monto
     amount = deal.amount_sats
-    if amount >= 1000000:
-        amount_text = f"{amount:,}"
-    elif amount >= 1000:
-        amount_text = f"{amount:,}"
-    else:
-        amount_text = f"{amount:,}"
+    amount_text = f"{amount:,}"
     
     db.close()
     
@@ -672,6 +651,7 @@ Example: /txid abc123def456...
 
 We'll notify you when confirmed.
 **Estimated time:** 30 minutes ⏰
+**Maximum time:** 48 hours (auto-refund if not confirmed)
 
 Next: Lightning invoice setup after confirmation.
     """, parse_mode='Markdown')
@@ -723,22 +703,19 @@ Example: /invoice lnbc100u1p3xnhl2pp5...
     except:
         payment_hash = "hash_placeholder"
     
-    # Actualizar deal
+    # Actualizar deal con timeouts
     deal.lightning_invoice = invoice
     deal.payment_hash = payment_hash
     deal.status = 'lightning_invoice_received'
+    deal.current_stage = 'payment_required'
+    deal.stage_expires_at = datetime.utcnow() + timedelta(hours=LIGHTNING_PAYMENT_HOURS)
     db.commit()
     
     seller_id = deal.seller_id
     
     # Formatear monto
     amount = deal.amount_sats
-    if amount >= 1000000:
-        amount_text = f"{amount:,}"
-    elif amount >= 1000:
-        amount_text = f"{amount:,}"
-    else:
-        amount_text = f"{amount:,}"
+    amount_text = f"{amount:,}"
     
     db.close()
     
@@ -753,16 +730,15 @@ Example: /invoice lnbc100u1p3xnhl2pp5...
 The seller will pay your Lightning invoice.
 Bot will verify payment and complete the swap.
 
-**Estimated time:** 30 minutes ⏰
+**Time limit:** {LIGHTNING_PAYMENT_HOURS} hours ⏰
     """, parse_mode='Markdown')
     
     # Paso 14: Notificar a Ana para pagar la factura con retry
-    # Paso 14: Notificar a Ana para pagar la factura con retry - MENSAJE 1 (Instrucciones)
     instructions_message = f"""
 🔔 **Payment Required - Deal #{deal.id}**
 
 **Amount:** {amount_text} sats
-**Time limit:** 30 minutes ⏰
+**Time limit:** {LIGHTNING_PAYMENT_HOURS} hours ⏰
 
 Your Lightning invoice will arrive in the next message for easy copying.
 
@@ -798,7 +774,7 @@ After payment:
     # Verificar que al menos uno de los mensajes se envió
     if not success_instructions and not success_invoice:
         # Critical notification failed - log for manual intervention
-        logger.critical(f"CRITICAL: Both instruction and invoice messages failed for seller {seller_id} deal {deal.id}")        # Could add to failed notifications queue here in future
+        logger.critical(f"CRITICAL: Both instruction and invoice messages failed for seller {seller_id} deal {deal.id}")
 
 # =============================================================================
 # SECCIÓN 8: DIRECCIÓN BITCOIN (/address) - PASO 15-16 DEL FLUJO
@@ -822,10 +798,16 @@ Example: /address tb1q...
     address = context.args[0].strip()
     
     # Validar dirección Bitcoin
-    from bitcoin_utils import validate_bitcoin_address
-    if not validate_bitcoin_address(address):
-        await update.message.reply_text("❌ Invalid Bitcoin address format")
-        return
+    try:
+        from bitcoin_utils import validate_bitcoin_address
+        if not validate_bitcoin_address(address):
+            await update.message.reply_text("❌ Invalid Bitcoin address format")
+            return
+    except ImportError:
+        # Si no hay bitcoin_utils, validación básica
+        if not (address.startswith(('tb1', 'bc1', '1', '3')) and len(address) >= 26):
+            await update.message.reply_text("❌ Invalid Bitcoin address format")
+            return
     
     # Buscar deal completado esperando dirección
     db = get_db()
@@ -846,12 +828,7 @@ Example: /address tb1q...
     db.commit()
     
     amount = deal.amount_sats
-    if amount >= 1000000:
-        amount_text = f"{amount:,}"
-    elif amount >= 1000:
-        amount_text = f"{amount:,}"
-    else:
-        amount_text = f"{amount:,}"
+    amount_text = f"{amount:,}"
     
     # Calcular próximo batch
     next_batch_time = datetime.utcnow() + timedelta(minutes=BATCH_WAIT_MINUTES)
@@ -903,12 +880,7 @@ Channel: @btcp2pswapoffers
     for offer in user_offers:
         # Formatear monto
         amount = offer.amount_sats
-        if amount >= 1000000:
-            amount_text = f"{amount:,}"
-        elif amount >= 1000:
-            amount_text = f"{amount:,}"
-        else:
-            amount_text = f"{amount:,}"
+        amount_text = f"{amount:,}"
         
         # Determinar tipo y dirección
         if offer.offer_type == 'swapout':
@@ -982,12 +954,7 @@ Browse: /offers
     for deal in user_deals:
         # Formatear monto
         amount = deal.amount_sats
-        if amount >= 1000000:
-            amount_text = f"{amount:,}"
-        elif amount >= 1000:
-            amount_text = f"{amount:,}"
-        else:
-            amount_text = f"{amount:,}"
+        amount_text = f"{amount:,}"
         
         # Determinar rol y estado
         if deal.seller_id == user.id:
@@ -1007,7 +974,8 @@ Browse: /offers
         
         message += f"#{deal.id} - {direction} {amount_text} sats\n"
         message += f"Role: {role}\n"
-        # Add real-time confirmation checking
+        
+        # Add real-time confirmation checking and timeout info
         status_text = deal.status.replace('_', ' ').title()
         if deal.status == 'bitcoin_sent' and deal.buyer_bitcoin_txid:
             try:
@@ -1019,6 +987,16 @@ Browse: /offers
                     status_text += f"\nNext: Waiting {remaining} more confirmation{'s' if remaining != 1 else ''}"
             except Exception:
                 status_text = "Bitcoin Sent (checking confirmations...)"
+        
+        # Add timeout information
+        if deal.stage_expires_at and deal.stage_expires_at > datetime.utcnow():
+            time_left = deal.stage_expires_at - datetime.utcnow()
+            if time_left.total_seconds() > 3600:  # More than 1 hour
+                hours_left = int(time_left.total_seconds() / 3600)
+                status_text += f"\nTimeout: {hours_left}h remaining"
+            else:  # Less than 1 hour
+                minutes_left = int(time_left.total_seconds() / 60)
+                status_text += f"\nTimeout: {minutes_left}m remaining"
         
         message += f"Status: {status_text} {status_emoji}\n\n"
     
@@ -1043,7 +1021,8 @@ async def monitor_confirmations():
                 Deal.current_stage == 'confirming_bitcoin',
                 Deal.buyer_bitcoin_txid.isnot(None),
                 Deal.stage_expires_at > datetime.utcnow()
-            ).all()            
+            ).all()
+            
             for deal in pending_deals:
                 txid = deal.buyer_bitcoin_txid
                 
@@ -1062,19 +1041,15 @@ async def monitor_confirmations():
                     deal.status = 'bitcoin_confirmed'
                     deal.current_stage = 'invoice_required'
                     deal.stage_expires_at = datetime.utcnow() + timedelta(hours=LIGHTNING_INVOICE_HOURS)
-                    db.commit()                    
+                    db.commit()
+                    
                     logger.info(f"Deal {deal.id}: Bitcoin confirmed! Requesting Lightning invoice")
                     
                     # Notificar a Carlos para proporcionar Lightning invoice
                     app = Application.builder().token(BOT_TOKEN).build()
                     
                     amount = deal.amount_sats
-                    if amount >= 1000000:
-                        amount_text = f"{amount:,}"
-                    elif amount >= 1000:
-                        amount_text = f"{amount:,}"
-                    else:
-                        amount_text = f"{amount:,}"
+                    amount_text = f"{amount:,}"
                     
                     await app.bot.send_message(
                         chat_id=deal.buyer_id,
@@ -1089,6 +1064,7 @@ Your deposit: {amount_text} sats confirmed!
 Create invoice for {amount_text} sats in your wallet and send it here.
 
 **Reply with:** /invoice [your_lightning_invoice]
+**Time limit:** {LIGHTNING_INVOICE_HOURS} hours ⏰
                         """,
                         parse_mode='Markdown'
                     )
@@ -1098,20 +1074,8 @@ Create invoice for {amount_text} sats in your wallet and send it here.
         except Exception as e:
             logger.error(f"Error in monitor_confirmations: {e}")
         
-        # Esperar hasta el próximo minuto "redondo" (terminado en 0)
-        import time
-        current_time = time.time()
-        seconds_since_epoch = int(current_time)
-        seconds_in_minute = seconds_since_epoch % 60
-        minutes_since_hour = (seconds_since_epoch // 60) % 60
-
-        # Calcular cuántos segundos faltan para el próximo minuto terminado en 0
-        minutes_to_next_round = (10 - (minutes_since_hour % 10)) % 10
-        if minutes_to_next_round == 0:
-            minutes_to_next_round = 10
-            
-        seconds_to_wait = (minutes_to_next_round * 60) - seconds_in_minute
-        await asyncio.sleep(seconds_to_wait)
+        # Verificar cada 10 minutos como configurado
+        await asyncio.sleep(CONFIRMATION_CHECK_MINUTES * 60)
 
 async def monitor_lightning_payments():
     """
@@ -1144,6 +1108,7 @@ async def monitor_lightning_payments():
                 if is_paid:
                     # Marcar como completado - pedir dirección Bitcoin
                     deal.status = 'awaiting_bitcoin_address'
+                    deal.current_stage = 'address_required'
                     deal.completed_at = datetime.utcnow()
                     db.commit()
                     
@@ -1153,12 +1118,7 @@ async def monitor_lightning_payments():
                     app = Application.builder().token(BOT_TOKEN).build()
                     
                     amount = deal.amount_sats
-                    if amount >= 1000000:
-                        amount_text = f"{amount:,}"
-                    elif amount >= 1000:
-                        amount_text = f"{amount:,}"
-                    else:
-                        amount_text = f"{amount:,}"
+                    amount_text = f"{amount:,}"
                     
                     # Notificar a Carlos (comprador Lightning)
                     await app.bot.send_message(
@@ -1204,6 +1164,132 @@ Your funds are secured and will be sent shortly.
         # Verificar cada 30 segundos
         await asyncio.sleep(30)
 
+async def monitor_expired_timeouts():
+    """
+    Monitor y procesar timeouts expirados - Limpieza automática
+    Cancela deals y reactiva ofertas según la etapa que expiró
+    """
+    while True:
+        try:
+            db = get_db()
+            
+            # Buscar deals con timeout expirado
+            expired_deals = db.query(Deal).filter(
+                Deal.stage_expires_at < datetime.utcnow(),
+                Deal.status.in_(['pending', 'accepted', 'bitcoin_sent', 'bitcoin_confirmed', 'lightning_invoice_received'])
+            ).all()
+            
+            for deal in expired_deals:
+                await handle_expired_deal(deal, db)
+            
+            db.close()
+            
+        except Exception as e:
+            logger.error(f"Error in monitor_expired_timeouts: {e}")
+        
+        # Verificar cada 5 minutos
+        await asyncio.sleep(300)
+
+async def handle_expired_deal(deal, db):
+    """
+    Manejar deal expirado según la etapa - Acciones específicas por timeout
+    """
+    stage = deal.current_stage
+    
+    try:
+        if stage == 'txid_required':
+            # Carlos no envió TXID en 30 min - cancelar y reactivar oferta
+            await cancel_deal_and_reactivate_offer(deal, db, 'TXID timeout')
+            
+        elif stage == 'confirming_bitcoin':
+            # Bitcoin no se confirmó en 48h - cancelar con advertencia de refund
+            await cancel_deal_bitcoin_timeout(deal, db)
+            
+        elif stage == 'invoice_required':
+            # Carlos no envió invoice en 2h - cancelar deal
+            await cancel_deal_and_notify(deal, db, 'Lightning invoice timeout')
+            
+        elif stage == 'payment_required':
+            # Ana no pagó Lightning en 2h - cancelar deal
+            await cancel_deal_and_notify(deal, db, 'Lightning payment timeout')
+            
+        logger.info(f"Handled expired deal {deal.id} in stage {stage}")
+        
+    except Exception as e:
+        logger.error(f"Error handling expired deal {deal.id}: {e}")
+
+# =============================================================================
+# FUNCIONES AUXILIARES DE TIMEOUT
+# =============================================================================
+
+async def cancel_deal_and_reactivate_offer(deal, db, reason):
+    """Cancelar deal por timeout de TXID y reactivar oferta"""
+    deal.status = 'cancelled'
+    deal.timeout_reason = reason
+    
+    # Reactivar oferta preservando tiempo restante
+    offer = db.query(Offer).filter(Offer.id == deal.offer_id).first()
+    if offer:
+        offer.status = 'active'
+        offer.taken_by = None
+        offer.taken_at = None
+    
+    db.commit()
+    
+    # Notificar ambos usuarios
+    app = Application.builder().token(BOT_TOKEN).build()
+    
+    await app.bot.send_message(
+        chat_id=deal.buyer_id,
+        text=f"❌ **Deal #{deal.id} Cancelled**\n\nTimeout: {reason}\nThe offer is available again in the channel."
+    )
+    
+    await app.bot.send_message(
+        chat_id=deal.seller_id,
+        text=f"🔄 **Deal #{deal.id} Cancelled**\n\nReason: {reason}\nYour offer is active again in @btcp2pswapoffers"
+    )
+
+async def cancel_deal_bitcoin_timeout(deal, db):
+    """Cancelar deal por timeout de confirmaciones Bitcoin (48h)"""
+    deal.status = 'cancelled'
+    deal.timeout_reason = 'Bitcoin confirmation timeout - 48h expired'
+    db.commit()
+    
+    app = Application.builder().token(BOT_TOKEN).build()
+    
+    await app.bot.send_message(
+        chat_id=deal.buyer_id,
+        text=f"⏰ **Deal #{deal.id} Expired**\n\nBitcoin confirmations not received within 48 hours.\n\n**Your funds will return to your wallet automatically.**\n\nTXID: `{deal.buyer_bitcoin_txid}`",
+        parse_mode='Markdown'
+    )
+    
+    await app.bot.send_message(
+        chat_id=deal.seller_id,
+        text=f"⏰ **Deal #{deal.id} Expired**\n\nBitcoin confirmations timeout (48h).\nDeal cancelled, your offer remains expired."
+    )
+
+async def cancel_deal_and_notify(deal, db, reason):
+    """Cancelar deal y notificar ambas partes"""
+    deal.status = 'cancelled'
+    deal.timeout_reason = reason
+    db.commit()
+    
+    app = Application.builder().token(BOT_TOKEN).build()
+    
+    await app.bot.send_message(
+        chat_id=deal.buyer_id,
+        text=f"❌ **Deal #{deal.id} Cancelled**\n\nTimeout: {reason}\nDeal terminated due to inactivity."
+    )
+    
+    await app.bot.send_message(
+        chat_id=deal.seller_id,
+        text=f"❌ **Deal #{deal.id} Cancelled**\n\nTimeout: {reason}\nDeal terminated due to inactivity."
+    )
+
+# =============================================================================
+# PROCESAMIENTO DE BATCHES BITCOIN
+# =============================================================================
+
 async def process_bitcoin_batches():
     """
     Procesa batches de Bitcoin - Paso 16 del flujo
@@ -1227,7 +1313,6 @@ async def process_bitcoin_batches():
                 logger.info("No pending payouts, waiting for more")
                 db.close()
                 # Esperar hasta la próxima hora exacta (00 minutos)
-                import time
                 current_time = time.time()
                 seconds_since_epoch = int(current_time)
                 seconds_in_minute = seconds_since_epoch % 60
@@ -1268,7 +1353,6 @@ async def process_bitcoin_batches():
             
             db.close()
             # Esperar hasta la próxima hora exacta para verificar nuevamente
-            import time
             current_time = time.time()
             seconds_since_epoch = int(current_time)
             seconds_in_minute = seconds_since_epoch % 60
@@ -1335,30 +1419,24 @@ async def notify_sellers_batch_sent(deals, txid):
     
     for deal in deals:
         amount = deal.amount_sats
-        if amount >= 1000000:
-            amount_text = f"{amount:,}"
-        elif amount >= 1000:
-            amount_text = f"{amount:,}"
-        else:
-            amount_text = f"{amount:,}"
+        amount_text = f"{amount:,}"
         
         try:
             await app.bot.send_message(
                 chat_id=deal.seller_id,
                 text=f"""
-💰 **Bitcoin Sent - Deal #{deal.id}**
+💰 Bitcoin Sent - Deal #{deal.id}
 
 Your {amount_text} sats have been sent!
 
-**Transaction:** `{txid}`
-**Address:** `{deal.seller_bitcoin_address}`
+Transaction: {txid}
+Address: {deal.seller_bitcoin_address}
 
 Check testnet blockchain explorer.
-**Swap completed successfully!** ✅
+Swap completed successfully! ✅
 
 Thanks for using P2P Swap Bot!
-                """,
-                parse_mode='Markdown'
+                """
             )
         except Exception as e:
             logger.error(f"Failed to notify seller {deal.seller_id}: {e}")
@@ -1384,7 +1462,7 @@ def main():
     # Crear aplicación de Telegram
     application = Application.builder().token(BOT_TOKEN).build()
 
-    # Iniciar monitores en background
+    # Iniciar monitores en background (incluyendo el nuevo monitor de timeouts)
     monitor_thread = threading.Thread(target=lambda: asyncio.run(monitor_confirmations()))
     monitor_thread.daemon = True
     monitor_thread.start()
@@ -1392,6 +1470,16 @@ def main():
     monitor_thread_ln = threading.Thread(target=lambda: asyncio.run(monitor_lightning_payments()))
     monitor_thread_ln.daemon = True
     monitor_thread_ln.start() 
+
+    # NUEVO: Monitor de timeouts expirados
+    timeout_thread = threading.Thread(target=lambda: asyncio.run(monitor_expired_timeouts()))
+    timeout_thread.daemon = True
+    timeout_thread.start()
+
+    # NUEVO: Monitor de ofertas expiradas (48h)
+    offers_thread = threading.Thread(target=lambda: asyncio.run(monitor_expired_offers()))
+    offers_thread.daemon = True
+    offers_thread.start()
 
     batch_thread = threading.Thread(target=lambda: asyncio.run(process_bitcoin_batches()))
     batch_thread.daemon = True
