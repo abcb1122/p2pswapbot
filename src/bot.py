@@ -292,7 +292,7 @@ async def create_offer(query, user, amount, offer_type, db):
         amount_sats=amount,
         rate=1.0,
         status='active',
-        expires_at=datetime.utcnow() + timedelta(hours=OFFER_VISIBILITY_HOURS)
+        expires_at=datetime.now(datetime.UTC) + timedelta(hours=OFFER_VISIBILITY_HOURS)
     )
     
     db.add(new_offer)
@@ -444,7 +444,7 @@ See offers: /offers
     # Marcar oferta como tomada
     offer.status = 'taken'
     offer.taken_by = user.id
-    offer.taken_at = datetime.utcnow()
+    offer.taken_at = datetime.now(datetime.UTC)
     
     # Crear deal con timeouts granulares
     new_deal = Deal(
@@ -454,8 +454,8 @@ See offers: /offers
         amount_sats=offer_amount,
         status='pending',
         current_stage='pending',
-        stage_expires_at=datetime.utcnow() + timedelta(minutes=TXID_TIMEOUT_MINUTES),
-        offer_expires_at=datetime.utcnow() + timedelta(hours=OFFER_VISIBILITY_HOURS)
+        stage_expires_at=datetime.now(datetime.UTC) + timedelta(minutes=TXID_TIMEOUT_MINUTES),
+        offer_expires_at=datetime.now(datetime.UTC) + timedelta(hours=OFFER_VISIBILITY_HOURS)
     )
     
     db.add(new_deal)
@@ -526,9 +526,9 @@ async def accept_deal(query, user, deal_id, db):
     
     # Actualizar estado del deal con timeouts
     deal.status = 'accepted'
-    deal.accepted_at = datetime.utcnow()
+    deal.accepted_at = datetime.now(datetime.UTC)
     deal.current_stage = 'txid_required'
-    deal.stage_expires_at = datetime.utcnow() + timedelta(minutes=TXID_TIMEOUT_MINUTES)
+    deal.stage_expires_at = datetime.now(datetime.UTC) + timedelta(minutes=TXID_TIMEOUT_MINUTES)
     db.commit()
     
     # Obtener dirección fija para este monto
@@ -633,7 +633,7 @@ Example: /txid abc123def456...
     deal.buyer_bitcoin_txid = txid
     deal.status = 'bitcoin_sent'
     deal.current_stage = 'confirming_bitcoin'
-    deal.stage_expires_at = datetime.utcnow() + timedelta(hours=BITCOIN_CONFIRMATION_HOURS)
+    deal.stage_expires_at = datetime.now(datetime.UTC) + timedelta(hours=BITCOIN_CONFIRMATION_HOURS)
     db.commit()
     
     # Formatear monto
@@ -708,7 +708,7 @@ Example: /invoice lnbc100u1p3xnhl2pp5...
     deal.payment_hash = payment_hash
     deal.status = 'lightning_invoice_received'
     deal.current_stage = 'payment_required'
-    deal.stage_expires_at = datetime.utcnow() + timedelta(hours=LIGHTNING_PAYMENT_HOURS)
+    deal.stage_expires_at = datetime.now(datetime.UTC) + timedelta(hours=LIGHTNING_PAYMENT_HOURS)
     db.commit()
     
     seller_id = deal.seller_id
@@ -831,7 +831,7 @@ Example: /address tb1q...
     amount_text = f"{amount:,}"
     
     # Calcular próximo batch
-    next_batch_time = datetime.utcnow() + timedelta(minutes=BATCH_WAIT_MINUTES)
+    next_batch_time = datetime.now(datetime.UTC) + timedelta(minutes=BATCH_WAIT_MINUTES)
     batch_time_str = next_batch_time.strftime("%H:%M")
     
     db.close()
@@ -989,8 +989,8 @@ Browse: /offers
                 status_text = "Bitcoin Sent (checking confirmations...)"
         
         # Add timeout information
-        if deal.stage_expires_at and deal.stage_expires_at > datetime.utcnow():
-            time_left = deal.stage_expires_at - datetime.utcnow()
+        if deal.stage_expires_at and deal.stage_expires_at > datetime.now(datetime.UTC):
+            time_left = deal.stage_expires_at - datetime.now(datetime.UTC)
             if time_left.total_seconds() > 3600:  # More than 1 hour
                 hours_left = int(time_left.total_seconds() / 3600)
                 status_text += f"\nTimeout: {hours_left}h remaining"
@@ -1020,7 +1020,7 @@ async def monitor_confirmations():
             pending_deals = db.query(Deal).filter(
                 Deal.current_stage == 'confirming_bitcoin',
                 Deal.buyer_bitcoin_txid.isnot(None),
-                Deal.stage_expires_at > datetime.utcnow()
+                Deal.stage_expires_at > datetime.now(datetime.UTC)
             ).all()
             
             for deal in pending_deals:
@@ -1040,7 +1040,7 @@ async def monitor_confirmations():
                     # Actualizar estado del deal
                     deal.status = 'bitcoin_confirmed'
                     deal.current_stage = 'invoice_required'
-                    deal.stage_expires_at = datetime.utcnow() + timedelta(hours=LIGHTNING_INVOICE_HOURS)
+                    deal.stage_expires_at = datetime.now(datetime.UTC) + timedelta(hours=LIGHTNING_INVOICE_HOURS)
                     db.commit()
                     
                     logger.info(f"Deal {deal.id}: Bitcoin confirmed! Requesting Lightning invoice")
@@ -1109,7 +1109,7 @@ async def monitor_lightning_payments():
                     # Marcar como completado - pedir dirección Bitcoin
                     deal.status = 'awaiting_bitcoin_address'
                     deal.current_stage = 'address_required'
-                    deal.completed_at = datetime.utcnow()
+                    deal.completed_at = datetime.now(datetime.UTC)
                     db.commit()
                     
                     logger.info(f"Deal {deal.id}: Lightning payment verified! Requesting Bitcoin address")
@@ -1175,7 +1175,7 @@ async def monitor_expired_timeouts():
             
             # Buscar deals con timeout expirado
             expired_deals = db.query(Deal).filter(
-                Deal.stage_expires_at < datetime.utcnow(),
+                Deal.stage_expires_at < datetime.now(datetime.UTC),
                 Deal.status.in_(['pending', 'accepted', 'bitcoin_sent', 'bitcoin_confirmed', 'lightning_invoice_received'])
             ).all()
             
@@ -1331,7 +1331,7 @@ async def process_bitcoin_batches():
             
             # Obtener el deal más antiguo para verificar tiempo
             oldest_deal = min(pending_payouts, key=lambda d: d.created_at)
-            elapsed_minutes = (datetime.utcnow() - oldest_deal.created_at).total_seconds() / 60
+            elapsed_minutes = (datetime.now(datetime.UTC) - oldest_deal.created_at).total_seconds() / 60
             
             # Procesar batch si hay suficientes deals O pasó suficiente tiempo
             if len(pending_payouts) >= MIN_BATCH_SIZE or elapsed_minutes >= MAX_WAIT_MINUTES:
@@ -1390,13 +1390,13 @@ async def send_bitcoin_batch(pending_deals, db):
             
             # Para testing, simular transacción Bitcoin
             # En producción: integrar con wallet_manager para transacciones reales
-            simulated_txid = f"batch_{amount_sats}_{len(amount_deals)}_{int(datetime.utcnow().timestamp())}"
+            simulated_txid = f"batch_{amount_sats}_{len(amount_deals)}_{int(datetime.now(datetime.UTC).timestamp())}"
             
             # Marcar deals como completados
             for deal in amount_deals:
                 deal.bitcoin_txid = simulated_txid
                 deal.status = 'completed'
-                deal.completed_at = datetime.utcnow()
+                deal.completed_at = datetime.now(datetime.UTC)
             
             # Notificar vendedores (Ana)
             await notify_sellers_batch_sent(amount_deals, simulated_txid)
@@ -1477,7 +1477,7 @@ def main():
     timeout_thread.start()
 
     # NUEVO: Monitor de ofertas expiradas (48h)
-    offers_thread = threading.Thread(target=lambda: asyncio.run(monitor_expired_offers()))
+    offers_thread = threading.Thread(target=lambda: asyncio.run(monitor_expired_timeouts()))
     offers_thread.daemon = True
     offers_thread.start()
 
