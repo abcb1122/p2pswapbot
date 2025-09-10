@@ -276,40 +276,15 @@ class BitcoinManager:
 # =============================================================================
 
 def extract_payment_hash_from_invoice(invoice):
-    """
-    Extrae payment hash de factura Lightning
-    FUNCIÓN CLAVE: Usada por el bot para identificar pagos Lightning
-    """
-    try:
-        # Remover prefijo lightning: si está presente
-        if invoice.startswith('lightning:'):
-            invoice = invoice[10:]
-        
-        # Validación básica de formato
-        if not invoice.startswith(('lnbc', 'lntb', 'lnbcrt')):
-            logger.error(f"Invalid Lightning invoice format: {invoice[:10]}...")
-            return None
-        
-        # Extracción básica - en producción usar librería Lightning apropiada
-        if invoice.startswith(('lnbc', 'lntb', 'lnbcrt')):
-            # Remover prefijo y obtener parte de datos
-            without_prefix = invoice[4:]
-            # Buscar separador 'p' que indica que sigue payment hash
-            hash_start = without_prefix.find('p') + 1
-            if hash_start > 0:
-                # Payment hash son los siguientes 52 caracteres
-                payment_hash_encoded = without_prefix[hash_start:hash_start+52]
-                logger.info(f"Extracted payment hash: {payment_hash_encoded}")
-                return payment_hash_encoded
-        
-        logger.warning(f"Could not extract payment hash from invoice: {invoice[:20]}...")
-        return None
-        
-    except Exception as e:
-        logger.error(f"Error extracting payment hash: {e}")
-        return None
+    """Extract payment hash from Lightning invoice using LND"""
+    from lightning_utils import extract_payment_hash_from_invoice as lnd_extract
+    return lnd_extract(invoice)
 
 def check_lightning_payment_status(payment_hash):
+    """Check if Lightning payment is settled using LND"""
+    from lightning_utils import check_lightning_payment_status as lnd_check
+    return lnd_check(payment_hash)
+
     """
     Verifica si el pago Lightning fue completado
     FUNCIÓN CLAVE: Usada por el bot para verificar pagos Lightning
