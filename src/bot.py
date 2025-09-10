@@ -1054,41 +1054,37 @@ async def check_and_notify_ana(deal_id):
         invoice_ready = deal.lightning_invoice is not None
         
         if bitcoin_confirmed and invoice_ready:
-            # Ambas condiciones cumplidas - notificar a Ana
+            # Ambas condiciones cumplidas - pedir dirección Bitcoin a Ana
             seller_id = deal.seller_id
             amount_text = f"{deal.amount_sats:,}"
             
+            # Cambiar status para indicar que esperamos dirección
+            deal.status = 'awaiting_bitcoin_address'
+            db.commit()
+            
             app = Application.builder().token(BOT_TOKEN).build()
             
-            instructions_message = f"""
-🔔 **Payment Required - Deal #{deal.id}**
+            address_request_message = f"""
+Bitcoin Confirmed - Deal #{deal.id}
 
-**Amount:** {amount_text} sats
-**Time limit:** {LIGHTNING_PAYMENT_HOURS} hours ⏰
+Bitcoin deposit confirmed: {amount_text} sats
+Status: Ready for final step
 
-Your Lightning invoice will arrive in the next message for easy copying.
+IMPORTANT: Provide your Bitcoin address first
+After you send your address, the Lightning invoice will be revealed to complete the swap.
 
-After payment:
-- Buyer receives Lightning instantly
-- You'll provide Bitcoin address  
-- Bot sends you Bitcoin in next batch
+Send: /address [your_bitcoin_address]
+Time limit: 48 hours
+
+Your funds are secured and this step ensures smooth completion.
             """
             
-            # Enviar mensaje de instrucciones
             await app.bot.send_message(
                 chat_id=seller_id,
-                text=instructions_message
+                text=address_request_message
             )
             
-            # Enviar invoice
-            invoice_message = f""
-            await app.bot.send_message(
-                chat_id=seller_id,
-                text=invoice_message,
-                parse_mode='Markdown'
-            )
-            
-            logger.info(f"Ana notified for deal {deal_id} - Bitcoin confirmed + invoice ready")
+            logger.info(f"Ana notified for address request - deal {deal_id}")
             db.close()
             return True
         else:
