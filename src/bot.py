@@ -1570,6 +1570,11 @@ def main():
     timeout_thread.daemon = True
     timeout_thread.start()
 
+    # Monitor de reintentos lnproxy
+    lnproxy_retry_thread = threading.Thread(target=lambda: asyncio.run(monitor_lnproxy_retries()))
+    lnproxy_retry_thread.daemon = True
+    lnproxy_retry_thread.start()
+
     # NUEVO: Monitor de ofertas expiradas (48h)
     offers_thread = threading.Thread(target=lambda: asyncio.run(monitor_expired_timeouts()))
     offers_thread.daemon = True
@@ -1591,6 +1596,7 @@ def main():
     application.add_handler(CommandHandler("txid", txid_command))
     application.add_handler(CommandHandler("invoice", invoice_command))
     application.add_handler(CommandHandler("address", address_command))
+    application.add_handler(CommandHandler("reveal", reveal_command))
     
     # Handler para botones
     application.add_handler(CallbackQueryHandler(button_handler))
@@ -1704,3 +1710,201 @@ If unsuccessful after 2 hours, deal will be cancelled.
 
 **You can change your mind anytime with:** /reveal {deal_id}
     """, parse_mode='Markdown')
+
+async def monitor_lnproxy_retries():
+    """
+    Monitor para reintentos de lnproxy cada 20 minutos por 2 horas máximo
+    """
+    while True:
+        try:
+            db = get_db()
+            
+            # Buscar deals esperando reintentos de lnproxy
+            retry_deals = db.query(Deal).filter(
+                Deal.status == 'retrying_lnproxy',
+                Deal.current_stage == 'privacy_retry'
+            ).all()
+            
+            for deal in retry_deals:
+                # Verificar si el deal ha expirado (2 horas)
+                if deal.stage_expires_at and datetime.now(timezone.utc) > deal.stage_expires_at:
+                    logger.info(f"Deal {deal.id}: lnproxy retry timeout after 2 hours")
+                    await handle_lnproxy_timeout(deal)
+                    continue
+                
+                # Verificar si es tiempo de reintentar (cada 20 minutos)
+                last_attempt = deal.last_updated
+                minutes_since_last = (datetime.now(timezone.utc) - last_attempt).total_seconds() / 60
+                
+                if minutes_since_last >= 20:
+                    logger.info(f"Deal {deal.id}: Starting 20-minute lnproxy retry")
+                    await perform_lnproxy_retry(deal)
+            
+            db.close()
+            
+        except Exception as e:
+            logger.error(f"Error in monitor_lnproxy_retries: {e}")
+        
+        # Verificar cada 5 minutos
+        await asyncio.sleep(300)
+
+async def handle_lnproxy_timeout(deal):
+    """
+    Manejar timeout de lnproxy después de 2 horas - cancelar deal y refund
+    """
+    try:
+        db = get_db()
+        
+        # Actualizar deal como expirado
+        deal.status = 'expired_privacy_timeout'
+        
+        # Reactivar la oferta de Ana para que regrese al canal
+        offer = db.query(Offer).filter(Offer.id == deal.offer_id).first()
+        if offer:
+            offer.status = 'active'
+            offer.taken_by = None
+            offer.taken_at = None
+            
+            logger.info(f"Deal {deal.id}: Ana's offer {offer.id} returned to channel after lnproxy timeout")
+            
+            # Notificar a Carlos (buyer) sobre el timeout y refund
+            app = Application.builder().token(BOT_TOKEN).build()
+            await app.bot.send_message(
+                chat_id=deal.buyer_id,  # Carlos - el comprador
+                text=f"""
+Deal #{deal.id} has expired after 2 hours.
+
+Your Bitcoin will be returned to the original sending address minus network fees.
+
+Refund will be processed in the next batch.
+                """
+            )
+        
+        db.commit()
+        db.close()
+        
+    except Exception as e:
+        logger.error(f"Error handling lnproxy timeout for deal {deal.id}: {e}")
+
+async def perform_lnproxy_retry(deal):
+    """
+    Realizar reintento de lnproxy para un deal específico
+    """
+    try:
+        db = get_db()
+        
+        # Obtener invoice original del deal
+        original_invoice = deal.lightning_invoice
+        
+        logger.info(f"Deal {deal.id}: Starting lnproxy retry attempt")
+        
+        # Intentar lnproxy por 5 minutos máximo (3 intentos)
+        from lnproxy_utils import wrap_invoice_for_privacy
+        import time
+        
+        max_attempts = 3
+        timeout_minutes = 5
+        start_time = time.time()
+        
+        for attempt in range(max_attempts):
+            # Verificar timeout (5 minutos máximo)
+            elapsed = (time.time() - start_time) / 60
+            if elapsed >= timeout_minutes:
+                logger.warning(f"Deal {deal.id}: lnproxy retry timeout after {elapsed:.1f} minutes")
+                break
+                
+            logger.info(f"Deal {deal.id}: lnproxy retry attempt {attempt + 1}/{max_attempts}")
+            success, result = wrap_invoice_for_privacy(original_invoice)
+            
+            if success and result.get('wrapped_invoice'):
+                # lnproxy funcionó! Actualizar deal
+                deal.lightning_invoice = result['wrapped_invoice']
+                deal.status = 'lightning_invoice_received'
+                deal.current_stage = 'payment_required'
+                deal.stage_expires_at = datetime.now(timezone.utc) + timedelta(hours=LIGHTNING_PAYMENT_HOURS)
+                deal.last_updated = datetime.now(timezone.utc)
+                db.commit()
+                
+                logger.info(f"Deal {deal.id}: lnproxy retry successful on attempt {attempt + 1}")
+                
+                # Verificar si Ana puede ser notificada
+                await check_and_notify_ana(deal.id)
+                
+                db.close()
+                return True
+            else:
+                logger.warning(f"Deal {deal.id}: lnproxy retry attempt {attempt + 1} failed")
+                if attempt < max_attempts - 1:
+                    time.sleep(30)  # Esperar 30 segundos entre intentos
+        
+        # Actualizar timestamp para próximo reintento en 20 minutos
+        deal.last_updated = datetime.now(timezone.utc)
+        db.commit()
+        db.close()
+        
+        logger.info(f"Deal {deal.id}: lnproxy retry failed, will try again in 20 minutes")
+        return False
+        
+    except Exception as e:
+        logger.error(f"Error performing lnproxy retry for deal {deal.id}: {e}")
+        return False
+
+async def reveal_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    Comando /reveal - Carlos puede cambiar de opinión y revelar invoice original
+    """
+    user = update.effective_user
+    
+    if not context.args:
+        await update.message.reply_text("""
+Usage: /reveal [deal_id]
+
+Example: /reveal 5
+
+This command allows you to reveal your original Lightning invoice
+if you previously chose to keep trying privacy enhancement.
+        """)
+        return
+    
+    try:
+        deal_id = int(context.args[0])
+    except ValueError:
+        await update.message.reply_text("Invalid deal ID")
+        return
+    
+    db = get_db()
+    deal = db.query(Deal).filter(
+        Deal.id == deal_id,
+        Deal.seller_id == user.id,  # Carlos debe ser el seller (quien envía invoice)
+        Deal.status == 'retrying_lnproxy'
+    ).first()
+    
+    if not deal:
+        db.close()
+        await update.message.reply_text(f"Deal #{deal_id} not found or not eligible for reveal")
+        return
+    
+    # Cambiar de reintentos a invoice revelado
+    deal.status = 'lightning_invoice_received'
+    deal.current_stage = 'payment_required'
+    deal.stage_expires_at = datetime.now(timezone.utc) + timedelta(hours=LIGHTNING_PAYMENT_HOURS)
+    db.commit()
+    
+    amount_text = f"{deal.amount_sats:,}"
+    
+    await update.message.reply_text(f"""
+Deal #{deal_id} updated.
+
+Your original Lightning invoice will be used.
+Privacy enhancement cancelled - your Lightning node will be visible to the payer.
+
+Amount: {amount_text} sats
+Time limit: {LIGHTNING_PAYMENT_HOURS} hours
+
+The seller will be notified when conditions are met.
+    """)
+    
+    db.close()
+    
+    # Verificar si Ana puede ser notificada ahora
+    await check_and_notify_ana(deal_id)
