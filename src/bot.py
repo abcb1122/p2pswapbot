@@ -741,50 +741,9 @@ Bot will verify payment and complete the swap.
 **Time limit:** {LIGHTNING_PAYMENT_HOURS} hours ⏰
     """, parse_mode='Markdown')
     
-    # Paso 14: Notificar a Ana para pagar la factura con retry
-    instructions_message = f"""
-🔔 **Payment Required - Deal #{deal.id}**
+    # Llamar función coordinada para verificar si notificar a Ana
+    await check_and_notify_ana(deal.id)
 
-**Amount:** {amount_text} sats
-**Time limit:** {LIGHTNING_PAYMENT_HOURS} hours ⏰
-
-Your Lightning invoice will arrive in the next message for easy copying.
-
-After payment:
-- Buyer receives Lightning instantly  
-- You'll provide Bitcoin address
-- Bot sends you Bitcoin in next batch
-    """
-
-    # Enviar primer mensaje con instrucciones
-    success_instructions = await send_message_with_retry(
-        context=context,
-        chat_id=seller_id,
-        text=instructions_message
-    )
-
-    if not success_instructions:
-        logger.critical(f"CRITICAL: Failed to notify seller {seller_id} for deal {deal.id} - instructions message failed")
-
-    # MENSAJE 2 (Solo el invoice)
-    invoice_message = f"`{invoice}`"
-
-    # Enviar segundo mensaje con solo el invoice
-    success_invoice = await send_message_with_retry(
-        context=context,
-        chat_id=seller_id,
-        text=invoice_message
-    )
-
-    if not success_invoice:
-        logger.critical(f"CRITICAL: Failed to send Lightning invoice to seller {seller_id} for deal {deal.id}")
-
-    # Verificar que al menos uno de los mensajes se envió
-    if not success_instructions and not success_invoice:
-        # Critical notification failed - log for manual intervention
-        logger.critical(f"CRITICAL: Both instruction and invoice messages failed for seller {seller_id} deal {deal.id}")
-
-# =============================================================================
 # SECCIÓN 8: DIRECCIÓN BITCOIN (/address) - PASO 15-16 DEL FLUJO
 # =============================================================================
 
@@ -1015,6 +974,71 @@ Browse: /offers
 # SECCIÓN 10: MONITOREO AUTOMÁTICO - PROCESOS EN BACKGROUND
 # =============================================================================
 
+async def check_and_notify_ana(deal_id):
+    """
+    Verifica si Ana debe ser notificada: Bitcoin confirmado + invoice listo
+    Implementa timing coordinado según Issue #25
+    """
+    try:
+        db = get_db()
+        deal = db.query(Deal).filter(Deal.id == deal_id).first()
+        
+        if not deal:
+            db.close()
+            return False
+        
+        # Verificar ambas condiciones
+        bitcoin_confirmed = (deal.status == 'bitcoin_confirmed' or 
+                            deal.bitcoin_confirmations >= CONFIRMATION_COUNT)
+        invoice_ready = deal.lightning_invoice is not None
+        
+        if bitcoin_confirmed and invoice_ready:
+            # Ambas condiciones cumplidas - notificar a Ana
+            seller_id = deal.seller_id
+            amount_text = f"{deal.amount_sats:,}"
+            
+            app = Application.builder().token(BOT_TOKEN).build()
+            
+            instructions_message = f"""
+🔔 **Payment Required - Deal #{deal.id}**
+
+**Amount:** {amount_text} sats
+**Time limit:** {LIGHTNING_PAYMENT_HOURS} hours ⏰
+
+Your Lightning invoice will arrive in the next message for easy copying.
+
+After payment:
+- Buyer receives Lightning instantly
+- You'll provide Bitcoin address  
+- Bot sends you Bitcoin in next batch
+            """
+            
+            # Enviar mensaje de instrucciones
+            await app.bot.send_message(
+                chat_id=seller_id,
+                text=instructions_message
+            )
+            
+            # Enviar invoice
+            invoice_message = f""
+            await app.bot.send_message(
+                chat_id=seller_id,
+                text=invoice_message,
+                parse_mode='Markdown'
+            )
+            
+            logger.info(f"Ana notified for deal {deal_id} - Bitcoin confirmed + invoice ready")
+            db.close()
+            return True
+        else:
+            logger.info(f"Deal {deal_id}: Waiting - Bitcoin confirmed: {bitcoin_confirmed}, Invoice ready: {invoice_ready}")
+            db.close()
+            return False
+            
+    except Exception as e:
+        logger.error(f"Error in check_and_notify_ana: {e}")
+        return False
+
 async def monitor_confirmations():
     """
     Monitorea confirmaciones Bitcoin - Paso 11 del flujo
@@ -1052,7 +1076,8 @@ async def monitor_confirmations():
                     db.commit()
                     
                     logger.info(f"Deal {deal.id}: Bitcoin confirmed! Requesting Lightning invoice")
-                    
+                    # También verificar si Ana puede ser notificada
+                    await check_and_notify_ana(deal.id)                    
                     # Notificar a Carlos para proporcionar Lightning invoice
                     app = Application.builder().token(BOT_TOKEN).build()
                     
