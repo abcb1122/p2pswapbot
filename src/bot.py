@@ -702,9 +702,17 @@ Example: /invoice lnbc100u1p3xnhl2pp5...
         payment_hash = extract_payment_hash_from_invoice(invoice) or "hash_placeholder"
     except:
         payment_hash = "hash_placeholder"
+
+    # Intentar wrapping con lnproxy
+    try:
+        from lnproxy_utils import wrap_invoice_for_privacy
+        success, result = wrap_invoice_for_privacy(invoice)
+        final_invoice = result["wrapped_invoice"] if success else invoice
+    except:
+        final_invoice = invoice
     
     # Actualizar deal con timeouts
-    deal.lightning_invoice = invoice
+    deal.lightning_invoice = final_invoice
     deal.payment_hash = payment_hash
     deal.status = 'lightning_invoice_received'
     deal.current_stage = 'payment_required'
