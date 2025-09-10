@@ -1539,78 +1539,6 @@ Thanks for using P2P Swap Bot!
 # SECCIÓN 11: FUNCIÓN PRINCIPAL Y CONFIGURACIÓN
 # =============================================================================
 
-def main():
-    """
-    Función principal del bot - Configura todos los handlers y monitores
-    """
-    if not BOT_TOKEN:
-        logger.error("TELEGRAM_BOT_TOKEN not configured")
-        return
-    
-    if not OFFERS_CHANNEL_ID:
-        logger.warning("OFFERS_CHANNEL_ID not configured - channel posting disabled")
-    
-    # Crear tablas de base de datos
-    create_tables()
-    
-    # Crear aplicación de Telegram
-    application = Application.builder().token(BOT_TOKEN).build()
-
-    # Iniciar monitores en background (incluyendo el nuevo monitor de timeouts)
-    monitor_thread = threading.Thread(target=lambda: asyncio.run(monitor_confirmations()))
-    monitor_thread.daemon = True
-    monitor_thread.start()
-
-    monitor_thread_ln = threading.Thread(target=lambda: asyncio.run(monitor_lightning_payments()))
-    monitor_thread_ln.daemon = True
-    monitor_thread_ln.start() 
-
-    # NUEVO: Monitor de timeouts expirados
-    timeout_thread = threading.Thread(target=lambda: asyncio.run(monitor_expired_timeouts()))
-    timeout_thread.daemon = True
-    timeout_thread.start()
-
-    # Monitor de reintentos lnproxy
-    lnproxy_retry_thread = threading.Thread(target=lambda: asyncio.run(monitor_lnproxy_retries()))
-    lnproxy_retry_thread.daemon = True
-    lnproxy_retry_thread.start()
-
-    # NUEVO: Monitor de ofertas expiradas (48h)
-    offers_thread = threading.Thread(target=lambda: asyncio.run(monitor_expired_timeouts()))
-    offers_thread.daemon = True
-    offers_thread.start()
-
-    batch_thread = threading.Thread(target=lambda: asyncio.run(process_bitcoin_batches()))
-    batch_thread.daemon = True
-    batch_thread.start()
-
-    # Agregar handlers de comandos
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("help", help_command))
-    application.add_handler(CommandHandler("profile", profile))
-    application.add_handler(CommandHandler("swapout", swapout))
-    application.add_handler(CommandHandler("swapin", swapin))
-    application.add_handler(CommandHandler("offers", offers))
-    application.add_handler(CommandHandler("deals", deals))
-    application.add_handler(CommandHandler("take", take))
-    application.add_handler(CommandHandler("txid", txid_command))
-    application.add_handler(CommandHandler("invoice", invoice_command))
-    application.add_handler(CommandHandler("address", address_command))
-    application.add_handler(CommandHandler("reveal", reveal_command))
-    
-    # Handler para botones
-    application.add_handler(CallbackQueryHandler(button_handler))
-    
-    # Iniciar bot
-    logger.info("Starting P2P Swap Bot...")
-    application.run_polling(
-        drop_pending_updates=True,
-        allowed_updates=['message', 'callback_query']
-    )
-
-if __name__ == '__main__':
-    main()
-
 async def handle_lnproxy_failure(update, deal_id, invoice):
     """
     Manejar cuando lnproxy falla - mostrar UI de decisión a Carlos
@@ -1908,3 +1836,76 @@ The seller will be notified when conditions are met.
     
     # Verificar si Ana puede ser notificada ahora
     await check_and_notify_ana(deal_id)
+
+def main():
+    """
+    Función principal del bot - Configura todos los handlers y monitores
+    """
+    if not BOT_TOKEN:
+        logger.error("TELEGRAM_BOT_TOKEN not configured")
+        return
+    
+    if not OFFERS_CHANNEL_ID:
+        logger.warning("OFFERS_CHANNEL_ID not configured - channel posting disabled")
+    
+    # Crear tablas de base de datos
+    create_tables()
+    
+    # Crear aplicación de Telegram
+    application = Application.builder().token(BOT_TOKEN).build()
+
+    # Iniciar monitores en background (incluyendo el nuevo monitor de timeouts)
+    monitor_thread = threading.Thread(target=lambda: asyncio.run(monitor_confirmations()))
+    monitor_thread.daemon = True
+    monitor_thread.start()
+
+    monitor_thread_ln = threading.Thread(target=lambda: asyncio.run(monitor_lightning_payments()))
+    monitor_thread_ln.daemon = True
+    monitor_thread_ln.start() 
+
+    # NUEVO: Monitor de timeouts expirados
+    timeout_thread = threading.Thread(target=lambda: asyncio.run(monitor_expired_timeouts()))
+    timeout_thread.daemon = True
+    timeout_thread.start()
+
+    # Monitor de reintentos lnproxy
+    lnproxy_retry_thread = threading.Thread(target=lambda: asyncio.run(monitor_lnproxy_retries()))
+    lnproxy_retry_thread.daemon = True
+    lnproxy_retry_thread.start()
+
+    # NUEVO: Monitor de ofertas expiradas (48h)
+    offers_thread = threading.Thread(target=lambda: asyncio.run(monitor_expired_timeouts()))
+    offers_thread.daemon = True
+    offers_thread.start()
+
+    batch_thread = threading.Thread(target=lambda: asyncio.run(process_bitcoin_batches()))
+    batch_thread.daemon = True
+    batch_thread.start()
+
+    # Agregar handlers de comandos
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CommandHandler("profile", profile))
+    application.add_handler(CommandHandler("swapout", swapout))
+    application.add_handler(CommandHandler("swapin", swapin))
+    application.add_handler(CommandHandler("offers", offers))
+    application.add_handler(CommandHandler("deals", deals))
+    application.add_handler(CommandHandler("take", take))
+    application.add_handler(CommandHandler("txid", txid_command))
+    application.add_handler(CommandHandler("invoice", invoice_command))
+    application.add_handler(CommandHandler("address", address_command))
+    application.add_handler(CommandHandler("reveal", reveal_command))
+    
+    # Handler para botones
+    application.add_handler(CallbackQueryHandler(button_handler))
+    
+    # Iniciar bot
+    logger.info("Starting P2P Swap Bot...")
+    application.run_polling(
+        drop_pending_updates=True,
+        allowed_updates=['message', 'callback_query']
+    )
+
+if __name__ == '__main__':
+    main()
+
