@@ -280,6 +280,12 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     elif data.startswith("cancel_deal_"):
         deal_id = int(data.split("_")[2])
         await cancel_deal(query, user, deal_id, db)
+    elif data.startswith("reveal_invoice_"):
+        deal_id = int(data.split("_")[2])
+        await handle_reveal_invoice(query, user, deal_id, db)
+    elif data.startswith("retry_lnproxy_"):
+        deal_id = int(data.split("_")[2])
+        await handle_retry_lnproxy(query, user, deal_id, db)
 
 async def create_offer(query, user, amount, offer_type, db):
     """
@@ -704,28 +710,83 @@ Example: /invoice lnbc100u1p3xnhl2pp5...
         payment_hash = "hash_placeholder"
 
     # Intentar wrapping con lnproxy
+    # Notificar inmediatamente a Carlos que estamos procesando
+    await update.message.reply_text(f"""
+⚡ **Invoice Received - Deal #{deal.id}**
+
+Processing your Lightning invoice...
+Please wait while we enhance privacy.
+
+**Status:** Wrapping invoice for privacy 🔒
+**Time:** Up to 5 minutes maximum
+    """, parse_mode='Markdown')
+    # Intentar wrapping con lnproxy - Múltiples intentos con timeout
+    final_invoice = None  # No usar fallback automático
+    lnproxy_success = False
+    
     try:
         from lnproxy_utils import wrap_invoice_for_privacy
-        success, result = wrap_invoice_for_privacy(invoice)
-        final_invoice = result["wrapped_invoice"] if success else invoice
-    except:
-        final_invoice = invoice
+        import time
+        
+        # Máximo 3 intentos en 5 minutos
+        max_attempts = 3
+        timeout_minutes = 5
+        start_time = time.time()
+        
+        for attempt in range(max_attempts):
+            # Verificar timeout (5 minutos máximo)
+            elapsed = (time.time() - start_time) / 60
+            if elapsed >= timeout_minutes:
+                logger.warning(f'lnproxy timeout after {elapsed:.1f} minutes')
+                break
+                
+            logger.info(f'lnproxy attempt {attempt + 1}/{max_attempts}')
+            success, result = wrap_invoice_for_privacy(invoice)
+            
+            if success and result.get('wrapped_invoice'):
+                final_invoice = result['wrapped_invoice']
+                lnproxy_success = True
+                logger.info(f'lnproxy success on attempt {attempt + 1}')
+                break
+            else:
+                logger.warning(f'lnproxy attempt {attempt + 1} failed: {result.get("error", "unknown")}')
+                if attempt < max_attempts - 1:
+                    time.sleep(30)  # Esperar 30 segundos entre intentos
+                    
+    except Exception as e:
+        logger.error(f'lnproxy error: {e}')
     
-    # Actualizar deal con timeouts
-    deal.lightning_invoice = final_invoice
-    deal.payment_hash = payment_hash
-    deal.status = 'lightning_invoice_received'
-    deal.current_stage = 'payment_required'
-    deal.stage_expires_at = datetime.now(timezone.utc) + timedelta(hours=LIGHTNING_PAYMENT_HOURS)
-    db.commit()
-    
-    seller_id = deal.seller_id
-    
-    # Formatear monto
-    amount = deal.amount_sats
-    amount_text = f"{amount:,}"
-    
-    db.close()
+    # Verificar resultado de lnproxy
+    if lnproxy_success:
+        # lnproxy funcionó - proceder normalmente
+        deal.lightning_invoice = final_invoice
+        deal.payment_hash = payment_hash
+        deal.status = 'lightning_invoice_received'
+        deal.current_stage = 'payment_required'
+        deal.stage_expires_at = datetime.now(timezone.utc) + timedelta(hours=LIGHTNING_PAYMENT_HOURS)
+        db.commit()
+        
+        seller_id = deal.seller_id
+        
+        # Formatear monto
+        amount = deal.amount_sats
+        amount_text = f"{amount:,}"
+        
+        db.close()
+        
+        # Llamar función coordinada para verificar si notificar a Ana
+        await check_and_notify_ana(deal.id)
+        
+    else:
+        # lnproxy falló - mostrar UI de decisión a Carlos
+        deal.status = 'awaiting_privacy_decision'
+        deal.lightning_invoice = invoice  # Guardar invoice original temporalmente
+        deal.payment_hash = payment_hash
+        db.commit()
+        db.close()
+        
+        await handle_lnproxy_failure(update, deal.id, invoice)
+        return  # Salir - esperar decisión de Carlos
     
     # Paso 13: Notificar a Carlos que espere el pago
     await update.message.reply_text(f"""
@@ -1543,3 +1604,103 @@ def main():
 
 if __name__ == '__main__':
     main()
+
+async def handle_lnproxy_failure(update, deal_id, invoice):
+    """
+    Manejar cuando lnproxy falla - mostrar UI de decisión a Carlos
+    """
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    
+    keyboard = [
+        [InlineKeyboardButton("🔓 Reveal Original Invoice", callback_data=f"reveal_invoice_{deal_id}")],
+        [InlineKeyboardButton("⏳ Keep Trying (20min retries)", callback_data=f"retry_lnproxy_{deal_id}")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.message.reply_text(f"""
+🔒 **Privacy Enhancement Failed - Deal #{deal_id}**
+
+lnproxy service could not wrap your invoice after 3 attempts.
+
+**Your options:**
+
+**🔓 Reveal Original Invoice**
+- Your Lightning node will be visible to the payer
+- Swap proceeds immediately
+
+**⏳ Keep Trying (Recommended)**
+- Retry lnproxy every 20 minutes for 2 hours
+- Maintains your privacy
+- Auto-cancel if unsuccessful after 2 hours
+
+**Choose your preference:**
+    """, reply_markup=reply_markup, parse_mode='Markdown')
+
+async def handle_reveal_invoice(query, user, deal_id, db):
+    """
+    Manejar cuando Carlos decide revelar su invoice original
+    """
+    deal = db.query(Deal).filter(Deal.id == deal_id, Deal.seller_id == user.id).first()
+    
+    if not deal or deal.status != 'awaiting_privacy_decision':
+        await query.edit_message_text("❌ Deal not found or already processed")
+        db.close()
+        return
+    
+    # Actualizar deal con invoice original
+    deal.status = 'lightning_invoice_received'
+    deal.current_stage = 'payment_required'
+    deal.stage_expires_at = datetime.now(timezone.utc) + timedelta(hours=LIGHTNING_PAYMENT_HOURS)
+    db.commit()
+    
+    amount_text = f"{deal.amount_sats:,}"
+    
+    await query.edit_message_text(f"""
+✅ **Invoice Revealed - Deal #{deal_id}**
+
+**Status:** Original invoice will be used
+**Privacy:** Your Lightning node will be visible to payer
+**Amount:** {amount_text} sats
+
+The seller will be notified when conditions are met.
+Bot will verify payment and complete the swap.
+
+**Time limit:** {LIGHTNING_PAYMENT_HOURS} hours ⏰
+    """, parse_mode='Markdown')
+    
+    db.close()
+    
+    # Llamar función coordinada para verificar si notificar a Ana
+    await check_and_notify_ana(deal_id)
+
+async def handle_retry_lnproxy(query, user, deal_id, db):
+    """
+    Manejar cuando Carlos decide seguir intentando lnproxy
+    """
+    deal = db.query(Deal).filter(Deal.id == deal_id, Deal.seller_id == user.id).first()
+    
+    if not deal or deal.status != 'awaiting_privacy_decision':
+        await query.edit_message_text("❌ Deal not found or already processed")
+        db.close()
+        return
+    
+    # Actualizar deal para reintentos
+    deal.status = 'retrying_lnproxy'
+    deal.current_stage = 'privacy_retry'
+    deal.stage_expires_at = datetime.now(timezone.utc) + timedelta(hours=2)  # 2 horas para reintentos
+    db.commit()
+    db.close()
+    
+    await query.edit_message_text(f"""
+⏳ **Privacy Retry Mode - Deal #{deal_id}**
+
+**Status:** Will retry lnproxy every 20 minutes
+**Duration:** Up to 2 hours maximum
+**Privacy:** Your Lightning node remains hidden
+
+Bot will attempt to wrap your invoice periodically.
+If successful within 2 hours, swap proceeds privately.
+If unsuccessful after 2 hours, deal will be cancelled.
+
+**You can change your mind anytime with:** /reveal {deal_id}
+    """, parse_mode='Markdown')
