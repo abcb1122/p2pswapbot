@@ -1,20 +1,24 @@
 #!/usr/bin/env python3
 """
 ===============================================================================
-P2P SWAP BOT - Bot de Telegram para intercambios Lightning <-> Bitcoin on-chain
+P2P SWAP BOT - Telegram Bot for Lightning <-> Bitcoin Onchain Swaps
 ===============================================================================
 
-FLUJO SWAP OUT (Lightning → Bitcoin):
-1. Ana /start → registra
-2. Ana /swapout → selecciona monto → oferta creada y publicada en canal
-3. Carlos /take X → acepta deal con botones Accept/Cancel  
-4. Carlos deposita Bitcoin → /txid → espera 3 confirmaciones
-5. Carlos /invoice → proporciona factura Lightning
-6. Ana paga factura Lightning → bot verifica pago
-7. Ana /address → proporciona dirección Bitcoin
-8. Bot envía Bitcoin en batch a Ana
+Non-custodial P2P trading bot enabling secure Lightning Network to Bitcoin swaps.
+Implements granular timeouts, lnproxy privacy integration, and batch processing.
 
-Versión optimizada para principiantes - Fácil de modificar
+SWAP OUT FLOW (Lightning → Bitcoin):
+1. Ana /start → Register user
+2. Ana /swapout → Create offer → Posted to public channel
+3. Carlos /take X → Accept deal with Accept/Cancel buttons
+4. Carlos deposits Bitcoin → /txid → Wait for 3 confirmations
+5. Carlos /invoice → Provide Lightning invoice (lnproxy privacy attempted)
+6. Ana /address → Provide Bitcoin address FIRST
+7. Ana receives Lightning invoice → Ana pays Lightning
+8. Bot verifies Lightning payment → Ana added to Bitcoin batch
+9. Bitcoin sent in batches → Deal completed
+
+Version: Optimized for production - Clean English implementation
 """
 
 import os
@@ -27,40 +31,40 @@ from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 
-# Importar modelos de base de datos
+# Import database models
 from database.models import get_db, User, Offer, Deal, create_tables
 
-# Cargar variables de entorno
+# Load environment variables
 load_dotenv()
 
 # =============================================================================
-# CONFIGURACIÓN PRINCIPAL - MODIFICAR AQUÍ PARA CAMBIOS RÁPIDOS
+# CORE CONFIGURATION - MODIFY HERE FOR QUICK CHANGES
 # =============================================================================
 
-# Tokens y configuración básica
+# Bot tokens and configuration
 BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
-OFFERS_CHANNEL_ID = os.getenv('OFFERS_CHANNEL_ID')  # Canal público para ofertas
+OFFERS_CHANNEL_ID = os.getenv('OFFERS_CHANNEL_ID')  # Public channel for offers
 
-# Montos disponibles (en sats) - CAMBIAR AQUÍ PARA DIFERENTES MONTOS
-AMOUNTS = [10000, 100000]  # Solo 10k y 100k sats
+# Available amounts (sats) - Currently testing with 2 amounts only
+AMOUNTS = [10000, 100000]  # 10k and 100k sats
 
-# Direcciones Bitcoin fijas (testnet) - CONFIGURAR EN .env
+# Fixed Bitcoin addresses per amount (testnet) - Configure in .env
 FIXED_ADDRESSES = {
-    10000: os.getenv('BITCOIN_ADDRESS_10K'),    # Dirección para 10k sats
-    100000: os.getenv('BITCOIN_ADDRESS_100K')   # Dirección para 100k sats
+    10000: os.getenv('BITCOIN_ADDRESS_10K'),    # Address for 10k sats
+    100000: os.getenv('BITCOIN_ADDRESS_100K')   # Address for 100k sats
 }
 
-# Configuración de tiempos granulares - TIMEOUTS POR ETAPA
-OFFER_VISIBILITY_HOURS = 48        # Ofertas visibles en canal por 48 horas
-TXID_TIMEOUT_MINUTES = 30          # Tiempo para enviar TXID tras aceptar deal
-BITCOIN_CONFIRMATION_HOURS = 48    # Máximo tiempo para 3 confirmaciones Bitcoin
-LIGHTNING_INVOICE_HOURS = 2        # Tiempo para enviar Lightning invoice
-LIGHTNING_PAYMENT_HOURS = 2        # Tiempo para pagar Lightning invoice
-CONFIRMATION_COUNT = 3             # Confirmaciones Bitcoin requeridas
-CONFIRMATION_CHECK_MINUTES = 10    # Verificar confirmaciones cada 10 minutos
-BATCH_WAIT_MINUTES = 60            # Tiempo máximo para batch Bitcoin (o mín 3 requests)
+# Granular timeout configuration - ADJUST PER STAGE REQUIREMENTS
+OFFER_VISIBILITY_HOURS = 48        # Offers visible in channel for 48 hours
+TXID_TIMEOUT_MINUTES = 30          # Time to send TXID after accepting deal
+BITCOIN_CONFIRMATION_HOURS = 48    # Maximum time for 3 Bitcoin confirmations
+LIGHTNING_INVOICE_HOURS = 2        # Time to send Lightning invoice after Bitcoin confirmed
+LIGHTNING_PAYMENT_HOURS = 2        # Time to pay Lightning invoice
+CONFIRMATION_COUNT = 3             # Required Bitcoin confirmations
+CONFIRMATION_CHECK_MINUTES = 10    # Check confirmations every 10 minutes
+BATCH_WAIT_MINUTES = 60            # Maximum wait time for Bitcoin batch (or min 3 requests)
 
-# Configurar logging
+# Configure logging
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
@@ -68,12 +72,17 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # =============================================================================
-# UTILIDADES DE MESSAGING CON RETRY
+# UTILITY FUNCTIONS
 # =============================================================================
+
+def format_amount(amount):
+    """Format amounts with dots as thousand separators (Latino format)"""
+    return f"{amount:,}".replace(",", ".")
 
 async def send_message_with_retry(context, chat_id, text, parse_mode='Markdown', max_retries=3):
     """
     Send message with retry logic for critical notifications
+    Implements exponential backoff: 1s, 2s, 4s delays
     """
     for attempt in range(max_retries):
         try:
@@ -96,17 +105,17 @@ async def send_message_with_retry(context, chat_id, text, parse_mode='Markdown',
     return False
 
 # =============================================================================
-# SECCIÓN 1: COMANDOS BÁSICOS (/start, /help, /profile)
+# SECTION 1: BASIC COMMANDS (/start, /help, /profile)
 # =============================================================================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
-    Comando /start - Registra usuario automáticamente
-    Ana y Carlos usan este comando para activar el bot
+    Command /start - Register user automatically
+    Both Ana and Carlos use this command to activate the bot
     """
     user = update.effective_user
     
-    # Registrar usuario en base de datos
+    # Register user in database
     db = get_db()
     existing_user = db.query(User).filter(User.telegram_id == user.id).first()
     
@@ -147,7 +156,7 @@ Status: Live & Ready ✅
     await update.message.reply_text(welcome_message)
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Comando /help - Información sobre cómo usar el bot"""
+    """Command /help - Information about how to use the bot"""
     help_text = """
 📖 How it works:
 
@@ -170,7 +179,7 @@ Channel: @btcp2pswapoffers
     await update.message.reply_text(help_text)
 
 async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Comando /profile - Ver estadísticas del usuario"""
+    """Command /profile - View user statistics"""
     user = update.effective_user
     
     db = get_db()
@@ -191,26 +200,26 @@ Name: {user_data.first_name}
 **Stats:**
 Completed: {user_data.total_deals}
 Rating: {'⭐' * int(user_data.reputation_score)} ({user_data.reputation_score}/5.0)
-Volume: {user_data.total_volume:,} sats
+Volume: {format_amount(user_data.total_volume)} sats
 
 **Bitcoin address:** {user_data.bitcoin_address or 'Not set'}
     """
     await update.message.reply_text(profile_text, parse_mode='Markdown')
 
 # =============================================================================
-# SECCIÓN 2: CREACIÓN DE OFERTAS (/swapout, /swapin)
+# SECTION 2: OFFER CREATION (/swapout, /swapin)
 # =============================================================================
 
 async def swapout(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
-    Comando /swapout - Ana crea oferta Lightning → Bitcoin
-    Paso 3 del flujo: Ana selecciona monto con botones
+    Command /swapout - Ana creates Lightning → Bitcoin offer
+    Step 2 in flow: Ana selects amount with buttons
     """
     keyboard = []
     
-    # Crear botones para cada monto disponible
+    # Create buttons for each available amount
     for amount in AMOUNTS:
-        text = f"{amount:,}"
+        text = format_amount(amount)
         keyboard.append([InlineKeyboardButton(text, callback_data=f"swapout_{amount}")])
     
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -221,11 +230,11 @@ async def swapout(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     )
 
 async def swapin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Comando /swapin - Crear oferta Bitcoin → Lightning"""
+    """Command /swapin - Create Bitcoin → Lightning offer"""
     keyboard = []
     
     for amount in AMOUNTS:
-        text = f"{amount:,}"
+        text = format_amount(amount)
         keyboard.append([InlineKeyboardButton(text, callback_data=f"swapin_{amount}")])
     
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -236,12 +245,12 @@ async def swapin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     )
 
 # =============================================================================
-# SECCIÓN 3: MANEJO DE BOTONES Y CREACIÓN DE OFERTAS
+# SECTION 3: BUTTON HANDLERS AND OFFER CREATION
 # =============================================================================
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
-    Maneja clicks de botones - Auto-registra usuarios y procesa acciones
+    Handle button clicks - Auto-register users and process actions
     """
     query = update.callback_query
     await query.answer()
@@ -249,7 +258,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     user = query.from_user
     data = query.data
     
-    # Auto-registrar usuario si no existe
+    # Auto-register user if doesn't exist
     db = get_db()
     user_data = db.query(User).filter(User.telegram_id == user.id).first()
     
@@ -267,7 +276,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         db.commit()
         logger.info(f"Auto-registered user: {user.id} ({user.username})")
     
-    # Procesar diferentes tipos de botones
+    # Process different button types
     if data.startswith("swapout_"):
         amount = int(data.split("_")[1])
         await create_offer(query, user, amount, "swapout", db)
@@ -289,8 +298,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 async def create_offer(query, user, amount, offer_type, db):
     """
-    Crear nueva oferta y publicarla en canal
-    Paso 4-6 del flujo: Oferta creada y publicada sin mostrar username
+    Create new offer and publish to channel
+    Steps 3-4 in flow: Offer created and published without showing username
     """
     new_offer = Offer(
         user_id=user.id,
@@ -305,13 +314,13 @@ async def create_offer(query, user, amount, offer_type, db):
     db.commit()
     offer_id = new_offer.id
     
-    # Obtener estadísticas del usuario
+    # Get user statistics
     user_data = db.query(User).filter(User.telegram_id == user.id).first()
     total_swaps = user_data.total_deals
     db.close()
     
-    # Formatear monto para mostrar
-    amount_text = f"{amount:,}"
+    # Format amount for display
+    amount_text = format_amount(amount)
     
     if offer_type == "swapout":
         success_message = f"""
@@ -338,15 +347,15 @@ Relax and wait for someone to take it
     
     await query.edit_message_text(success_message)
     
-    # Publicar en canal SIN mostrar username (como requieres)
+    # Publish to channel WITHOUT showing username (as required)
     await post_to_channel(offer_id, total_swaps, amount, offer_type, amount_text)
     
     logger.info(f"User {user.id} created {offer_type} offer: {amount} sats")
 
 async def post_to_channel(offer_id, total_swaps, amount, offer_type, amount_text):
     """
-    Publicar oferta en canal público - SIN mostrar username del creador
-    Paso 6 del flujo: Publicación sin @ del usuario
+    Publish offer to public channel - WITHOUT showing creator's username
+    Step 4 in flow: Publication without user @mention
     """
     if not OFFERS_CHANNEL_ID:
         return
@@ -356,7 +365,7 @@ async def post_to_channel(offer_id, total_swaps, amount, offer_type, amount_text
 **Swap Out Offer #{offer_id}**
 
 **Offering:** {amount_text} sats Lightning
-**Seeking:** Bitcoin on-chain  
+**Seeking:** Bitcoin onchain  
 **User swaps:** {total_swaps}
 
 Activate this order sending the command /take {offer_id} to @btcp2pswapbot
@@ -365,7 +374,7 @@ Activate this order sending the command /take {offer_id} to @btcp2pswapbot
         channel_message = f"""
 **Swap In Offer #{offer_id}**
 
-**Offering:** Bitcoin on-chain
+**Offering:** Bitcoin onchain
 **Seeking:** {amount_text} sats Lightning
 **User swaps:** {total_swaps}
 
@@ -383,13 +392,13 @@ Activate this order sending the command /take {offer_id} to @btcp2pswapbot
         logger.error(f"Failed to post to channel: {e}")
 
 # =============================================================================
-# SECCIÓN 4: TOMAR OFERTAS (/take) - PASO 8-11 DEL FLUJO
+# SECTION 4: TAKING OFFERS (/take) - STEPS 5-7 OF FLOW
 # =============================================================================
 
 async def take(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
-    Comando /take - Carlos toma oferta de Ana
-    Paso 8-9 del flujo: Carlos acepta deal con advertencias y botones Accept/Cancel
+    Command /take - Carlos takes Ana's offer
+    Steps 5-6 in flow: Carlos accepts deal with warnings and Accept/Cancel buttons
     """
     user = update.effective_user
     
@@ -401,7 +410,7 @@ Example: /take 5
 See offers: /offers
         """)
         return
-    
+
     try:
         offer_id = int(context.args[0])
     except ValueError:
@@ -412,7 +421,7 @@ See offers: /offers
     user_data = db.query(User).filter(User.telegram_id == user.id).first()
     
     if not user_data:
-        # Auto-registrar si no existe
+        # Auto-register if doesn't exist
         new_user = User(
             telegram_id=user.id,
             username=user.username,
@@ -442,17 +451,17 @@ See offers: /offers
     # Get offer creator data
     offer_creator = db.query(User).filter(User.telegram_id == offer.user_id).first()
     
-    # Extract data BEFORE any modifications to prevent DetachedInstanceError
+    # Extract data BEFORE modifications to prevent DetachedInstanceError
     offer_type = offer.offer_type
     offer_amount = offer.amount_sats
     creator_username = offer_creator.username if offer_creator else "Anonymous"
     
-    # Marcar oferta como tomada
+    # Mark offer as taken
     offer.status = 'taken'
     offer.taken_by = user.id
     offer.taken_at = datetime.now(timezone.utc)
     
-    # Crear deal con timeouts granulares
+    # Create deal with granular timeouts
     new_deal = Deal(
         offer_id=offer.id,
         seller_id=offer.user_id if offer_type == 'swapout' else user.id,
@@ -469,13 +478,13 @@ See offers: /offers
     deal_id = new_deal.id
     db.close()
     
-    # Formatear monto
+    # Format amount
     amount = offer_amount
     amount_text = format_amount(amount)
     
     if offer_type == 'swapout':
-        # Carlos está comprando Lightning, debe depositar Bitcoin
-        # Paso 9 del flujo: Mensaje con advertencias y botones Accept/Cancel
+        # Carlos is buying Lightning, must deposit Bitcoin
+        # Step 6 in flow: Message with warnings and Accept/Cancel buttons
         keyboard = [
             [
                 InlineKeyboardButton("✅ Accept", callback_data=f"accept_deal_{deal_id}"),
@@ -489,11 +498,10 @@ See offers: /offers
 
 Your role: Lightning Buyer ⚡
 You get: {amount_text} Lightning sats
-You pay: {amount_text} sats on-chain
-Operation time: 60 minutes starting now ⏰
+You pay: {amount_text} sats onchain
 
 ⚠️ IMPORTANT WARNINGS:
-- Send EXACT amounts or risk losing sats
+- Send EXACT amount or risk losing sats
 - This operation cannot be cancelled once started
 - Follow instructions carefully
 
@@ -501,22 +509,22 @@ You have {TXID_TIMEOUT_MINUTES} minutes to accept and send TXID ⏱️
         """, reply_markup=reply_markup)
         
     else:
-        # Swap in - flujo diferente (no implementado completamente en tu solicitud)
+        # Swap in - different flow (not fully implemented in your request)
         await update.message.reply_text(f"""
 🤝 Deal #{offer_id} Started
 
 Swap in functionality - To be implemented
         """)
-    
+
     logger.info(f"User {user.id} took offer {offer_id}, deal {deal_id} created")
 
 # =============================================================================
-# SECCIÓN 5: MANEJO DE ACCEPT/CANCEL - PASO 10-11 DEL FLUJO
+# SECTION 5: DEAL ACCEPTANCE/CANCELLATION - STEPS 7-8 OF FLOW
 # =============================================================================
 
 async def accept_deal(query, user, deal_id, db):
     """
-    Paso 11 del flujo: Carlos acepta - recibe dirección Bitcoin y instrucciones
+    Step 7 in flow: Carlos accepts - receives Bitcoin address and instructions
     """
     deal = db.query(Deal).filter(Deal.id == deal_id, Deal.buyer_id == user.id).first()
     
@@ -530,23 +538,23 @@ async def accept_deal(query, user, deal_id, db):
         await query.edit_message_text(f"❌ Deal #{deal_id} already processed")
         return
     
-    # Actualizar estado del deal con timeouts
+    # Update deal state with timeouts
     deal.status = 'accepted'
     deal.accepted_at = datetime.now(timezone.utc)
     deal.current_stage = 'txid_required'
     deal.stage_expires_at = datetime.now(timezone.utc) + timedelta(minutes=TXID_TIMEOUT_MINUTES)
     db.commit()
     
-    # Obtener dirección fija para este monto
+    # Get fixed address for this amount
     fixed_address = FIXED_ADDRESSES.get(deal.amount_sats, "ADDRESS_NOT_CONFIGURED")
     
-    # Formatear monto
+    # Format amount
     amount = deal.amount_sats
-    amount_text = f"{amount:,}"
+    amount_text = format_amount(amount)
     
     db.close()
     
-    # Paso 11: Primer mensaje con dirección Bitcoin
+    # Step 7: First message with Bitcoin address
     await query.edit_message_text(f"""
 💰 Bitcoin Deposit Required - Deal #{deal_id}
 
@@ -558,11 +566,11 @@ Send exactly {amount_text} sats to this address:
 `{fixed_address}`
     """, parse_mode='Markdown')
     
-    # Segundo mensaje con instrucciones de /txid
+    # Second message with /txid instructions
     await query.message.reply_text(f"""
 Next step: Report your TXID
 
-Send {amount_text} sats to the address shared above and submit the transaction ID using /txid abc1234567
+Send {amount_text} sats to the address shared above and submit the transaction ID using /txid abc1234def567890
 
 Critical: Send the exact amount or risk losing your funds.
 
@@ -573,7 +581,7 @@ Once the tx gets 3 confirmations you will receive a new message to send a Lightn
 
 async def cancel_deal(query, user, deal_id, db):
     """
-    Paso 10 del flujo: Carlos cancela - oferta regresa al canal
+    Step 8 alternative: Carlos cancels - offer returns to channel
     """
     deal = db.query(Deal).filter(Deal.id == deal_id, Deal.buyer_id == user.id).first()
     
@@ -582,7 +590,7 @@ async def cancel_deal(query, user, deal_id, db):
         await query.edit_message_text("❌ Deal not found or not yours")
         return
     
-    # Cancelar deal y reactivar oferta
+    # Cancel deal and reactivate offer
     deal.status = 'cancelled'
     deal.timeout_reason = 'User cancelled'
     
@@ -596,20 +604,20 @@ async def cancel_deal(query, user, deal_id, db):
     db.close()
     
     await query.edit_message_text(f"""
-❌ **Deal #{deal_id} Cancelled**
+❌ Deal #{deal_id} Cancelled
 
 The offer is now available again in the channel.
 Others can take it with /take {deal.offer_id}
     """)
 
 # =============================================================================
-# SECCIÓN 6: REPORTE DE TRANSACCIONES (/txid) - PASO 11 DEL FLUJO
+# SECTION 6: TRANSACTION REPORTING (/txid) - STEP 8 OF FLOW
 # =============================================================================
 
 async def txid_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
-    Comando /txid - Carlos reporta transacción Bitcoin
-    Paso 11 del flujo: Carlos envía TXID y espera confirmaciones
+    Command /txid - Carlos reports Bitcoin transaction
+    Step 8 in flow: Carlos sends TXID and waits for confirmations
     """
     user = update.effective_user
     
@@ -617,13 +625,13 @@ async def txid_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         await update.message.reply_text("""
 ❌ Usage: /txid [transaction_id]
 
-Example: /txid abc123def456...
+Example: /txid abc1234def567890...
         """)
         return
-    
+
     txid = context.args[0].strip()
     
-    # Buscar deal activo para este usuario
+    # Find active deal for this user
     db = get_db()
     deal = db.query(Deal).filter(
         Deal.buyer_id == user.id,
@@ -635,29 +643,27 @@ Example: /txid abc123def456...
         await update.message.reply_text("❌ No active deal found requiring Bitcoin deposit")
         return
     
-    # Actualizar deal con TXID y timeouts
+    # Update deal with TXID and timeouts
     deal.buyer_bitcoin_txid = txid
     deal.status = 'bitcoin_sent'
     deal.current_stage = 'confirming_bitcoin'
     deal.stage_expires_at = datetime.now(timezone.utc) + timedelta(hours=BITCOIN_CONFIRMATION_HOURS)
     db.commit()
     
-    # Formatear monto
+    # Format amount
     amount = deal.amount_sats
-    amount_text = f"{amount:,}"
+    amount_text = format_amount(amount)
     
     db.close()
     
     await update.message.reply_text(f"""
-⏳ **TXID Received - Deal #{deal.id}**
+⏳ TXID Received - Deal #{deal.id}
 
-**Transaction:** `{txid}`
-**Status:** Waiting confirmations (0/{CONFIRMATION_COUNT})
-**Amount:** {amount_text} sats
+Status: Waiting confirmations (0/{CONFIRMATION_COUNT})
+Amount: {amount_text} sats
 
 We'll notify you when confirmed.
-**Estimated time:** 30 minutes ⏰
-**Maximum time:** 48 hours (auto-refund if not confirmed)
+Maximum time: 48 hours (auto-refund if not confirmed)
 
 Next: Lightning invoice setup after confirmation.
     """, parse_mode='Markdown')
@@ -665,13 +671,13 @@ Next: Lightning invoice setup after confirmation.
     logger.info(f"User {user.id} reported TXID {txid} for deal {deal.id}")
 
 # =============================================================================
-# SECCIÓN 7: FACTURAS LIGHTNING (/invoice) - PASO 12-13 DEL FLUJO
+# SECTION 7: LIGHTNING INVOICE (/invoice) - STEPS 9-10 OF FLOW
 # =============================================================================
 
 async def invoice_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
-    Comando /invoice - Carlos proporciona factura Lightning
-    Paso 12-13 del flujo: Carlos envía invoice, Ana recibe solicitud de pago
+    Command /invoice - Carlos provides Lightning invoice
+    Step 9 in flow: Carlos sends invoice, lnproxy privacy attempted
     """
     user = update.effective_user
     
@@ -682,15 +688,15 @@ async def invoice_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 Example: /invoice lnbc100u1p3xnhl2pp5...
         """)
         return
-    
+
     invoice = ' '.join(context.args).strip()
     
-    # Validación básica de invoice
+    # Basic invoice validation
     if not invoice.startswith(('lnbc', 'lntb', 'lnbcrt')):
         await update.message.reply_text("❌ Invalid Lightning invoice format")
         return
     
-    # Buscar deal esperando invoice
+    # Find deal waiting for invoice
     db = get_db()
     deal = db.query(Deal).filter(
         Deal.buyer_id == user.id,
@@ -702,39 +708,38 @@ Example: /invoice lnbc100u1p3xnhl2pp5...
         await update.message.reply_text("❌ No deal found waiting for Lightning invoice")
         return
     
-    # Extraer payment hash del invoice
+    # Extract payment hash from invoice
     try:
         from bitcoin_utils import extract_payment_hash_from_invoice
         payment_hash = extract_payment_hash_from_invoice(invoice) or "hash_placeholder"
     except:
         payment_hash = "hash_placeholder"
 
-    # Intentar wrapping con lnproxy
-    # Notificar inmediatamente a Carlos que estamos procesando
+    # Notify Carlos that we're processing privacy enhancement
     await update.message.reply_text(f"""
-⚡ **Invoice Received - Deal #{deal.id}**
+⚡ Invoice Received - Deal #{deal.id}
 
-Processing your Lightning invoice...
-Please wait while we enhance privacy.
+Your invoice will be optimized for privacy and sent to the counterpart.
+If privacy enhancement fails, we will inform you to define the next step.
 
-**Status:** Wrapping invoice for privacy 🔒
-**Time:** Up to 5 minutes maximum
+Status: Processing privacy enhancement
     """, parse_mode='Markdown')
-    # Intentar wrapping con lnproxy - Múltiples intentos con timeout
-    final_invoice = None  # No usar fallback automático
+    
+    # Attempt lnproxy wrapping - Multiple attempts with timeout
+    final_invoice = None
     lnproxy_success = False
     
     try:
         from lnproxy_utils import wrap_invoice_for_privacy
         import time
         
-        # Máximo 3 intentos en 5 minutos
+        # Maximum 3 attempts in 5 minutes
         max_attempts = 3
         timeout_minutes = 5
         start_time = time.time()
         
         for attempt in range(max_attempts):
-            # Verificar timeout (5 minutos máximo)
+            # Check timeout (5 minutes maximum)
             elapsed = (time.time() - start_time) / 60
             if elapsed >= timeout_minutes:
                 logger.warning(f'lnproxy timeout after {elapsed:.1f} minutes')
@@ -751,14 +756,14 @@ Please wait while we enhance privacy.
             else:
                 logger.warning(f'lnproxy attempt {attempt + 1} failed: {result.get("error", "unknown")}')
                 if attempt < max_attempts - 1:
-                    time.sleep(30)  # Esperar 30 segundos entre intentos
+                    time.sleep(30)  # Wait 30 seconds between attempts
                     
     except Exception as e:
         logger.error(f'lnproxy error: {e}')
     
-    # Verificar resultado de lnproxy
+    # Check lnproxy result
     if lnproxy_success:
-        # lnproxy funcionó - proceder normalmente
+        # lnproxy worked - proceed normally
         deal.lightning_invoice = final_invoice
         deal.payment_hash = payment_hash
         deal.status = 'lightning_invoice_received'
@@ -768,50 +773,51 @@ Please wait while we enhance privacy.
         
         seller_id = deal.seller_id
         
-        # Formatear monto
+        # Format amount
         amount = deal.amount_sats
-        amount_text = f"{amount:,}"
+        amount_text = format_amount(amount)
         
         db.close()
         
-        # Llamar función coordinada para verificar si notificar a Ana
+        # Call coordinated function to check if Ana should be notified
         await check_and_notify_ana(deal.id)
         
     else:
-        # lnproxy falló - mostrar UI de decisión a Carlos
+        # lnproxy failed - show decision UI to Carlos
         deal.status = 'awaiting_privacy_decision'
-        deal.lightning_invoice = invoice  # Guardar invoice original temporalmente
+        deal.lightning_invoice = invoice  # Save original invoice temporarily
         deal.payment_hash = payment_hash
         db.commit()
         db.close()
         
         await handle_lnproxy_failure(update, deal.id, invoice)
-        return  # Salir - esperar decisión de Carlos
+        return  # Exit - wait for Carlos's decision
     
-    # Paso 13: Notificar a Carlos que espere el pago
+    # Step 10: Notify Carlos to wait for payment
     await update.message.reply_text(f"""
-⚡ **Invoice Received - Deal #{deal.id}**
+⚡ Invoice Received - Deal #{deal.id}
 
-**Status:** Payment request sent to seller
-**Your invoice:** `{invoice[:20]}...`
-**Amount:** {amount_text} sats
+Status: Payment request sent to seller
+Your invoice: `{invoice[:20]}...`
+Amount: {amount_text} sats
 
 The seller will pay your Lightning invoice.
 Bot will verify payment and complete the swap.
 
-**Time limit:** {LIGHTNING_PAYMENT_HOURS} hours ⏰
+Time limit: {LIGHTNING_PAYMENT_HOURS} hours ⏰
     """, parse_mode='Markdown')
     
-    # Llamar función coordinada para verificar si notificar a Ana
+    # Call coordinated function to check if Ana should be notified
     await check_and_notify_ana(deal.id)
 
-# SECCIÓN 8: DIRECCIÓN BITCOIN (/address) - PASO 15-16 DEL FLUJO
+# =============================================================================
+# SECTION 8: BITCOIN ADDRESS (/address) - STEPS 11-12 OF FLOW
 # =============================================================================
 
 async def address_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
-    Comando /address - Ana proporciona dirección Bitcoin para recibir pago
-    Paso 15-16 del flujo: Ana recibe fondos en batch con notificación de tiempo
+    Command /address - Ana provides Bitcoin address and receives Lightning invoice
+    CORRECTED FLOW: Address FIRST, then invoice to pay
     """
     user = update.effective_user
     
@@ -822,22 +828,22 @@ async def address_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 Example: /address tb1q...
         """)
         return
-    
+
     address = context.args[0].strip()
     
-    # Validar dirección Bitcoin
+    # Validate Bitcoin address
     try:
         from bitcoin_utils import validate_bitcoin_address
         if not validate_bitcoin_address(address):
             await update.message.reply_text("❌ Invalid Bitcoin address format")
             return
     except ImportError:
-        # Si no hay bitcoin_utils, validación básica
+        # If no bitcoin_utils, basic validation
         if not (address.startswith(('tb1', 'bc1', '1', '3')) and len(address) >= 26):
             await update.message.reply_text("❌ Invalid Bitcoin address format")
             return
     
-    # Buscar deal completado esperando dirección
+    # Find deal waiting for Bitcoin address
     db = get_db()
     deal = db.query(Deal).filter(
         Deal.seller_id == user.id,
@@ -847,44 +853,62 @@ Example: /address tb1q...
     
     if not deal:
         db.close()
-        await update.message.reply_text("❌ No completed deal found waiting for Bitcoin address")
+        await update.message.reply_text("❌ No deal found waiting for Bitcoin address")
         return
     
-    # Guardar dirección
+    # Save Bitcoin address
     deal.seller_bitcoin_address = address
-    deal.status = 'ready_for_batch'
+    deal.status = 'address_provided_awaiting_payment'
     db.commit()
     
     amount = deal.amount_sats
-    amount_text = f"{amount:,}"
+    amount_text = format_amount(amount)
     
-    # Calcular próximo batch
-    next_batch_time = datetime.now(timezone.utc) + timedelta(minutes=BATCH_WAIT_MINUTES)
-    batch_time_str = next_batch_time.strftime("%H:%M")
+    # Confirm address was saved
+    await update.message.reply_text(f"""
+✅ Bitcoin Address Saved - Deal #{deal.id}
+
+Address: `{address}`
+Amount: {amount_text} sats
+
+Now please pay the Lightning invoice below:
+    """, parse_mode='Markdown')
+    
+    # NEW: Send Lightning invoice to Ana for payment
+    if deal.lightning_invoice:
+        invoice_message = f"""
+⚡ Lightning Payment Required
+
+Pay this invoice to complete your swap:
+
+`{deal.lightning_invoice}`
+
+Amount: {amount_text} sats
+Time limit: 2 hours
+
+After payment verification, your Bitcoin will be sent in the next batch.
+        """
+        
+        await update.message.reply_text(invoice_message, parse_mode='Markdown')
+        
+        # Change status to indicate we're waiting for Lightning payment
+        deal.status = 'lightning_payment_pending'
+        deal.stage_expires_at = datetime.now(timezone.utc) + timedelta(hours=2)
+        db.commit()
+        
+        logger.info(f"Deal {deal.id}: Lightning invoice sent to Ana after address provided")
+    else:
+        await update.message.reply_text("❌ Lightning invoice not available. Please contact support.")
+        logger.error(f"Deal {deal.id}: No lightning_invoice found when Ana provided address")
     
     db.close()
-    
-    # Paso 16: Confirmar dirección y informar sobre batch
-    await update.message.reply_text(f"""
-✅ **Bitcoin Address Saved - Deal #{deal.id}**
-
-**Address:** `{address}`
-**Amount:** {amount_text} sats
-
-**Batch Processing:**
-- Next batch: ~{batch_time_str} (max {BATCH_WAIT_MINUTES} min)
-- Or when 3+ requests accumulated
-- You'll be notified when sent
-
-Your swap is complete! 🎉
-    """, parse_mode='Markdown')
 
 # =============================================================================
-# SECCIÓN 9: COMANDOS DE CONSULTA (/offers, /deals)
+# SECTION 9: QUERY COMMANDS (/offers, /deals)
 # =============================================================================
 
 async def offers(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Ver ofertas del usuario con estados detallados"""
+    """View user offers with detailed status"""
     user = update.effective_user
     
     db = get_db()
@@ -906,11 +930,11 @@ Channel: @btcp2pswapoffers
     message = "📋 Your Offers\n\n"
     
     for offer in user_offers:
-        # Formatear monto
+        # Format amount
         amount = offer.amount_sats
-        amount_text = f"{amount:,}"
+        amount_text = format_amount(amount)
         
-        # Determinar tipo y dirección
+        # Determine type and direction
         if offer.offer_type == 'swapout':
             direction = "⚡→₿"
             offer_desc = f"Selling {amount_text} Lightning"
@@ -918,7 +942,7 @@ Channel: @btcp2pswapoffers
             direction = "₿→⚡"
             offer_desc = f"Buying {amount_text} Lightning"
         
-        # Obtener estado del deal si la oferta fue tomada
+        # Get deal state if offer was taken
         deal = db.query(Deal).filter(Deal.offer_id == offer.id).first()
         
         if offer.status == 'active':
@@ -955,7 +979,7 @@ Channel: @btcp2pswapoffers
     await update.message.reply_text(message)
 
 async def deals(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Ver deals activos del usuario"""
+    """View user's active deals"""
     user = update.effective_user
     
     db = get_db()
@@ -966,7 +990,7 @@ async def deals(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     
     if not user_deals:
         await update.message.reply_text("""
-📋 **No active deals**
+📋 No active deals
 
 Create offers:
 /swapout - Lightning ⚡ → Bitcoin ₿
@@ -977,14 +1001,14 @@ Browse: /offers
         db.close()
         return
     
-    message = "📋 **Your Active Deals**\n\n"
+    message = "📋 Your Active Deals\n\n"
     
     for deal in user_deals:
-        # Formatear monto
+        # Format amount
         amount = deal.amount_sats
-        amount_text = f"{amount:,}"
+        amount_text = format_amount(amount)
         
-        # Determinar rol y estado
+        # Determine role and state
         if deal.seller_id == user.id:
             role = "Seller (Lightning)"
             direction = "⚡→₿"
@@ -1032,13 +1056,13 @@ Browse: /offers
     await update.message.reply_text(message, parse_mode='Markdown')
 
 # =============================================================================
-# SECCIÓN 10: MONITOREO AUTOMÁTICO - PROCESOS EN BACKGROUND
+# SECTION 10: BACKGROUND MONITORING - AUTOMATED PROCESSES
 # =============================================================================
 
 async def check_and_notify_ana(deal_id):
     """
-    Verifica si Ana debe ser notificada: Bitcoin confirmado + invoice listo
-    Implementa timing coordinado según Issue #25
+    Check if Ana should be notified: Bitcoin confirmed + invoice ready
+    Implements coordinated timing according to Issue #25
     """
     try:
         db = get_db()
@@ -1048,17 +1072,17 @@ async def check_and_notify_ana(deal_id):
             db.close()
             return False
         
-        # Verificar ambas condiciones
+        # Check both conditions
         bitcoin_confirmed = (deal.status == 'bitcoin_confirmed' or 
                             deal.bitcoin_confirmations >= CONFIRMATION_COUNT)
         invoice_ready = deal.lightning_invoice is not None
         
         if bitcoin_confirmed and invoice_ready:
-            # Ambas condiciones cumplidas - pedir dirección Bitcoin a Ana
+            # Both conditions met - request Bitcoin address from Ana
             seller_id = deal.seller_id
-            amount_text = f"{deal.amount_sats:,}"
+            amount_text = format_amount(deal.amount_sats)
             
-            # Cambiar status para indicar que esperamos dirección
+            # Change status to indicate we're waiting for address
             deal.status = 'awaiting_bitcoin_address'
             db.commit()
             
@@ -1098,14 +1122,14 @@ Your funds are secured and this step ensures smooth completion.
 
 async def monitor_confirmations():
     """
-    Monitorea confirmaciones Bitcoin - Paso 11 del flujo
-    Detecta cuando Carlos tiene 3 confirmaciones y pide Lightning invoice
+    Monitor Bitcoin confirmations - Step 8 of flow
+    Detects when Carlos has 3 confirmations and requests Lightning invoice
     """
     while True:
         try:
             db = get_db()
             
-            # Buscar deals esperando confirmaciones
+            # Find deals waiting for confirmations
             pending_deals = db.query(Deal).filter(
                 Deal.current_stage == 'confirming_bitcoin',
                 Deal.buyer_bitcoin_txid.isnot(None),
@@ -1115,7 +1139,7 @@ async def monitor_confirmations():
             for deal in pending_deals:
                 txid = deal.buyer_bitcoin_txid
                 
-                # Importar funciones de bitcoin_utils
+                # Import bitcoin functions
                 try:
                     from bitcoin_utils import get_confirmations
                 except ImportError as e:
@@ -1126,35 +1150,35 @@ async def monitor_confirmations():
                 logger.info(f"Deal {deal.id}: TXID {txid} has {confirmations} confirmations")
                 
                 if confirmations >= CONFIRMATION_COUNT:
-                    # Actualizar estado del deal
+                    # Update deal state
                     deal.status = 'bitcoin_confirmed'
                     deal.current_stage = 'invoice_required'
                     deal.stage_expires_at = datetime.now(timezone.utc) + timedelta(hours=LIGHTNING_INVOICE_HOURS)
                     db.commit()
                     
                     logger.info(f"Deal {deal.id}: Bitcoin confirmed! Requesting Lightning invoice")
-                    # También verificar si Ana puede ser notificada
+                    # Also check if Ana can be notified
                     await check_and_notify_ana(deal.id)                    
-                    # Notificar a Carlos para proporcionar Lightning invoice
+                    # Notify Carlos to provide Lightning invoice
                     app = Application.builder().token(BOT_TOKEN).build()
                     
                     amount = deal.amount_sats
-                    amount_text = f"{amount:,}"
+                    amount_text = format_amount(amount)
                     
                     await app.bot.send_message(
                         chat_id=deal.buyer_id,
                         text=f"""
-✅ **Bitcoin Confirmed - Deal #{deal.id}**
+✅ Bitcoin Confirmed - Deal #{deal.id}
 
 Your deposit: {amount_text} sats confirmed!
-**Status:** Ready for Lightning setup
+Status: Ready for Lightning setup
 
-**Next step:** Generate Lightning invoice
+Next step: Generate Lightning invoice
 
 Create invoice for {amount_text} sats in your wallet and send it here.
 
-**Reply with:** /invoice [your_lightning_invoice]
-**Time limit:** {LIGHTNING_INVOICE_HOURS} hours ⏰
+Reply with: /invoice [your_lightning_invoice]
+Time limit: {LIGHTNING_INVOICE_HOURS} hours ⏰
                         """,
                         parse_mode='Markdown'
                     )
@@ -1164,21 +1188,21 @@ Create invoice for {amount_text} sats in your wallet and send it here.
         except Exception as e:
             logger.error(f"Error in monitor_confirmations: {e}")
         
-        # Verificar cada 10 minutos como configurado
+        # Check every 10 minutes as configured
         await asyncio.sleep(CONFIRMATION_CHECK_MINUTES * 60)
 
 async def monitor_lightning_payments():
     """
-    Monitorea pagos Lightning - PRODUCCIÓN REAL
-    Solo avanza con verificación real de Lightning
+    Monitor Lightning payments - PRODUCTION REAL
+    Only advances with real Lightning verification
     """
     while True:
         try:
             db = get_db()
             
-            # Buscar deals esperando verificación de pago Lightning
+            # Find deals waiting for Lightning payment verification
             pending_deals = db.query(Deal).filter(
-                Deal.status == 'lightning_invoice_received',
+                Deal.status == 'lightning_payment_pending',
                 Deal.payment_hash.isnot(None)
             ).all()
             
@@ -1187,34 +1211,34 @@ async def monitor_lightning_payments():
                 
                 logger.info(f"Deal {deal.id}: Checking Lightning payment {payment_hash}")
                 
-                # Verificación real de Lightning
+                # Real Lightning verification
                 try:
                     from bitcoin_utils import check_lightning_payment_status
                     is_paid = check_lightning_payment_status(payment_hash)
                 except ImportError:
                     is_paid = False
                 
-                # Solo avanzar si hay verificación REAL de Lightning
+                # Only advance if there's REAL Lightning verification
                 if is_paid:
-                    # Marcar como completado - pedir dirección Bitcoin
-                    deal.status = 'awaiting_bitcoin_address'
-                    deal.current_stage = 'address_required'
+                    # Mark as completed - add to Bitcoin batch
+                    deal.status = 'ready_for_batch'
+                    deal.current_stage = 'batch_processing'
                     deal.completed_at = datetime.now(timezone.utc)
                     db.commit()
                     
-                    logger.info(f"Deal {deal.id}: Lightning payment verified! Requesting Bitcoin address")
+                    logger.info(f"Deal {deal.id}: Lightning payment verified! Adding to Bitcoin batch")
                     
-                    # Notificar ambos usuarios
+                    # Notify both users
                     app = Application.builder().token(BOT_TOKEN).build()
                     
                     amount = deal.amount_sats
-                    amount_text = f"{amount:,}"
+                    amount_text = format_amount(amount)
                     
-                    # Notificar a Carlos (comprador Lightning)
+                    # Notify Carlos (Lightning buyer)
                     await app.bot.send_message(
                         chat_id=deal.buyer_id,
                         text=f"""
-✅ **Deal Completed - #{deal.id}**
+✅ Deal Completed - #{deal.id}
 
 Lightning payment of {amount_text} sats confirmed!
 Your swap out is complete.
@@ -1224,17 +1248,14 @@ Thanks for using P2P Swap Bot!
                         parse_mode='Markdown'
                     )
                     
-                    # Notificar a Ana (vendedor) - pedir dirección Bitcoin
+                    # Notify Ana (seller) - Bitcoin will be sent in batch
                     await app.bot.send_message(
                         chat_id=deal.seller_id,
                         text=f"""
-✅ **Payment Verified - Deal #{deal.id}**
+✅ Payment Verified - Deal #{deal.id}
 
 Lightning payment received and verified!
 Your {amount_text} sats Bitcoin will be sent in the next batch.
-
-**Please provide your Bitcoin address:**
-/address [your_bitcoin_address]
 
 Your funds are secured and will be sent shortly.
                         """,
@@ -1243,7 +1264,7 @@ Your funds are secured and will be sent shortly.
                     
                     logger.info(f"Deal {deal.id}: Added to Bitcoin batch queue")
                 else:
-                    # Log que está esperando verificación real
+                    # Log that it's waiting for real verification
                     logger.info(f"Deal {deal.id}: Waiting for Lightning payment verification")
             
             db.close()
@@ -1251,19 +1272,19 @@ Your funds are secured and will be sent shortly.
         except Exception as e:
             logger.error(f"Error in monitor_lightning_payments: {e}")
         
-        # Verificar cada 30 segundos
+        # Check every 30 seconds
         await asyncio.sleep(30)
 
 async def monitor_expired_timeouts():
     """
-    Monitor y procesar timeouts expirados - Limpieza automática
-    Cancela deals y reactiva ofertas según la etapa que expiró
+    Monitor and process expired timeouts - Automatic cleanup
+    Cancel deals and reactivate offers according to which stage expired
     """
     while True:
         try:
             db = get_db()
             
-            # Buscar deals con timeout expirado
+            # Find deals with expired timeout
             expired_deals = db.query(Deal).filter(
                 Deal.stage_expires_at < datetime.now(timezone.utc),
                 Deal.status.in_(['pending', 'accepted', 'bitcoin_sent', 'bitcoin_confirmed', 'lightning_invoice_received'])
@@ -1277,30 +1298,30 @@ async def monitor_expired_timeouts():
         except Exception as e:
             logger.error(f"Error in monitor_expired_timeouts: {e}")
         
-        # Verificar cada 5 minutos
+        # Check every 5 minutes
         await asyncio.sleep(300)
 
 async def handle_expired_deal(deal, db):
     """
-    Manejar deal expirado según la etapa - Acciones específicas por timeout
+    Handle expired deal according to stage - Specific actions per timeout
     """
     stage = deal.current_stage
     
     try:
         if stage == 'txid_required':
-            # Carlos no envió TXID en 30 min - cancelar y reactivar oferta
+            # Carlos didn't send TXID in 30 min - cancel and reactivate offer
             await cancel_deal_and_reactivate_offer(deal, db, 'TXID timeout')
             
         elif stage == 'confirming_bitcoin':
-            # Bitcoin no se confirmó en 48h - cancelar con advertencia de refund
+            # Bitcoin not confirmed in 48h - cancel with refund warning
             await cancel_deal_bitcoin_timeout(deal, db)
             
         elif stage == 'invoice_required':
-            # Carlos no envió invoice en 2h - cancelar deal
+            # Carlos didn't send invoice in 2h - cancel deal
             await cancel_deal_and_notify(deal, db, 'Lightning invoice timeout')
             
         elif stage == 'payment_required':
-            # Ana no pagó Lightning en 2h - cancelar deal
+            # Ana didn't pay Lightning in 2h - cancel deal
             await cancel_deal_and_notify(deal, db, 'Lightning payment timeout')
             
         logger.info(f"Handled expired deal {deal.id} in stage {stage}")
@@ -1309,15 +1330,15 @@ async def handle_expired_deal(deal, db):
         logger.error(f"Error handling expired deal {deal.id}: {e}")
 
 # =============================================================================
-# FUNCIONES AUXILIARES DE TIMEOUT
+# TIMEOUT HELPER FUNCTIONS
 # =============================================================================
 
 async def cancel_deal_and_reactivate_offer(deal, db, reason):
-    """Cancelar deal por timeout de TXID y reactivar oferta"""
+    """Cancel deal due to TXID timeout and reactivate offer"""
     deal.status = 'cancelled'
     deal.timeout_reason = reason
     
-    # Reactivar oferta preservando tiempo restante
+    # Reactivate offer preserving remaining time
     offer = db.query(Offer).filter(Offer.id == deal.offer_id).first()
     if offer:
         offer.status = 'active'
@@ -1326,21 +1347,21 @@ async def cancel_deal_and_reactivate_offer(deal, db, reason):
     
     db.commit()
     
-    # Notificar ambos usuarios
+    # Notify both users
     app = Application.builder().token(BOT_TOKEN).build()
     
     await app.bot.send_message(
         chat_id=deal.buyer_id,
-        text=f"❌ **Deal #{deal.id} Cancelled**\n\nTimeout: {reason}\nThe offer is available again in the channel."
+        text=f"❌ Deal #{deal.id} Cancelled\n\nTimeout: {reason}\nThe offer is available again in the channel."
     )
     
     await app.bot.send_message(
         chat_id=deal.seller_id,
-        text=f"🔄 **Deal #{deal.id} Cancelled**\n\nReason: {reason}\nYour offer is active again in @btcp2pswapoffers"
+        text=f"🔄 Deal #{deal.id} Cancelled\n\nReason: {reason}\nYour offer is active again in @btcp2pswapoffers"
     )
 
 async def cancel_deal_bitcoin_timeout(deal, db):
-    """Cancelar deal por timeout de confirmaciones Bitcoin (48h)"""
+    """Cancel deal due to Bitcoin confirmation timeout (48h)"""
     deal.status = 'cancelled'
     deal.timeout_reason = 'Bitcoin confirmation timeout - 48h expired'
     db.commit()
@@ -1349,17 +1370,17 @@ async def cancel_deal_bitcoin_timeout(deal, db):
     
     await app.bot.send_message(
         chat_id=deal.buyer_id,
-        text=f"⏰ **Deal #{deal.id} Expired**\n\nBitcoin confirmations not received within 48 hours.\n\n**Your funds will return to your wallet automatically.**\n\nTXID: `{deal.buyer_bitcoin_txid}`",
+        text=f"⏰ Deal #{deal.id} Expired\n\nBitcoin confirmations not received within 48 hours.\n\nYour funds will return to your wallet automatically.\n\nTXID: `{deal.buyer_bitcoin_txid}`",
         parse_mode='Markdown'
     )
     
     await app.bot.send_message(
         chat_id=deal.seller_id,
-        text=f"⏰ **Deal #{deal.id} Expired**\n\nBitcoin confirmations timeout (48h).\nDeal cancelled, your offer remains expired."
+        text=f"⏰ Deal #{deal.id} Expired\n\nBitcoin confirmations timeout (48h).\nDeal cancelled, your offer remains expired."
     )
 
 async def cancel_deal_and_notify(deal, db, reason):
-    """Cancelar deal y notificar ambas partes"""
+    """Cancel deal and notify both parties"""
     deal.status = 'cancelled'
     deal.timeout_reason = reason
     db.commit()
@@ -1368,32 +1389,32 @@ async def cancel_deal_and_notify(deal, db, reason):
     
     await app.bot.send_message(
         chat_id=deal.buyer_id,
-        text=f"❌ **Deal #{deal.id} Cancelled**\n\nTimeout: {reason}\nDeal terminated due to inactivity."
+        text=f"❌ Deal #{deal.id} Cancelled\n\nTimeout: {reason}\nDeal terminated due to inactivity."
     )
     
     await app.bot.send_message(
         chat_id=deal.seller_id,
-        text=f"❌ **Deal #{deal.id} Cancelled**\n\nTimeout: {reason}\nDeal terminated due to inactivity."
+        text=f"❌ Deal #{deal.id} Cancelled\n\nTimeout: {reason}\nDeal terminated due to inactivity."
     )
 
 # =============================================================================
-# PROCESAMIENTO DE BATCHES BITCOIN
+# BITCOIN BATCH PROCESSING
 # =============================================================================
 
 async def process_bitcoin_batches():
     """
-    Procesa batches de Bitcoin - Paso 16 del flujo
-    Envía Bitcoin a Ana cuando hay suficientes deals o tiempo límite
+    Process Bitcoin batches - Step 16 of flow
+    Send Bitcoin to Ana when there are enough deals or time limit
     """
-    # Configuración de batch - AJUSTAR SEGÚN NECESIDADES
-    MIN_BATCH_SIZE = 3          # Mínimo deals para procesar batch
-    MAX_WAIT_MINUTES = BATCH_WAIT_MINUTES  # Tiempo máximo de espera
+    # Batch configuration - ADJUST ACCORDING TO NEEDS
+    MIN_BATCH_SIZE = 3          # Minimum deals to process batch
+    MAX_WAIT_MINUTES = BATCH_WAIT_MINUTES  # Maximum wait time
     
     while True:
         try:
             db = get_db()
             
-            # Obtener deals listos para pago Bitcoin
+            # Get deals ready for Bitcoin payment
             pending_payouts = db.query(Deal).filter(
                 Deal.status == 'ready_for_batch',
                 Deal.seller_bitcoin_address.isnot(None)
@@ -1402,13 +1423,13 @@ async def process_bitcoin_batches():
             if not pending_payouts:
                 logger.info("No pending payouts, waiting for more")
                 db.close()
-                # Esperar hasta la próxima hora exacta (00 minutos)
+                # Wait until next exact hour (00 minutes)
                 current_time = time.time()
                 seconds_since_epoch = int(current_time)
                 seconds_in_minute = seconds_since_epoch % 60
                 minutes_since_hour = (seconds_since_epoch // 60) % 60
 
-                # Calcular segundos hasta la próxima hora exacta
+                # Calculate seconds until next exact hour
                 minutes_to_next_hour = 60 - minutes_since_hour
                 if minutes_to_next_hour == 60:
                     minutes_to_next_hour = 0
@@ -1419,11 +1440,11 @@ async def process_bitcoin_batches():
             
             logger.info(f"{len(pending_payouts)} pending payouts, checking batch criteria")
             
-            # Obtener el deal más antiguo para verificar tiempo
+            # Get oldest deal to check time
             oldest_deal = min(pending_payouts, key=lambda d: d.created_at)
             elapsed_minutes = (datetime.now(timezone.utc) - oldest_deal.created_at).total_seconds() / 60
             
-            # Procesar batch si hay suficientes deals O pasó suficiente tiempo
+            # Process batch if enough deals OR enough time passed
             if len(pending_payouts) >= MIN_BATCH_SIZE or elapsed_minutes >= MAX_WAIT_MINUTES:
                 
                 if len(pending_payouts) >= MIN_BATCH_SIZE:
@@ -1433,7 +1454,7 @@ async def process_bitcoin_batches():
                 
                 logger.info(f"Processing batch of {len(pending_payouts)} payouts - {reason}")
                 
-                # Procesar el batch
+                # Process the batch
                 success = await send_bitcoin_batch(pending_payouts, db)
                 
                 if success:
@@ -1442,13 +1463,13 @@ async def process_bitcoin_batches():
                     logger.error("Failed to process Bitcoin batch")
             
             db.close()
-            # Esperar hasta la próxima hora exacta para verificar nuevamente
+            # Wait until next exact hour to check again
             current_time = time.time()
             seconds_since_epoch = int(current_time)
             seconds_in_minute = seconds_since_epoch % 60
             minutes_since_hour = (seconds_since_epoch // 60) % 60
 
-            # Calcular segundos hasta la próxima hora exacta
+            # Calculate seconds until next exact hour
             minutes_to_next_hour = 60 - minutes_since_hour
             if minutes_to_next_hour == 60:
                 minutes_to_next_hour = 0
@@ -1462,11 +1483,11 @@ async def process_bitcoin_batches():
 
 async def send_bitcoin_batch(pending_deals, db):
     """
-    Envía Bitcoin real usando wallet del bot - Paso 16 del flujo
-    Ana recibe Bitcoin en su dirección proporcionada
+    Send real Bitcoin using bot's wallet - Step 16 of flow
+    Ana receives Bitcoin at her provided address
     """
     try:
-        # Agrupar deals por monto para privacidad
+        # Group deals by amount for privacy
         deals_by_amount = {}
         for deal in pending_deals:
             amount = deal.amount_sats
@@ -1474,21 +1495,21 @@ async def send_bitcoin_batch(pending_deals, db):
                 deals_by_amount[amount] = []
             deals_by_amount[amount].append(deal)
         
-        # Procesar cada grupo de monto
+        # Process each amount group
         for amount_sats, amount_deals in deals_by_amount.items():
             logger.info(f"Creating Bitcoin batch transaction for {len(amount_deals)} deals of {amount_sats} sats each")
             
-            # Para testing, simular transacción Bitcoin
-            # En producción: integrar con wallet_manager para transacciones reales
+            # For testing, simulate Bitcoin transaction
+            # In production: integrate with wallet_manager for real transactions
             simulated_txid = f"batch_{amount_sats}_{len(amount_deals)}_{int(datetime.now(timezone.utc).timestamp())}"
             
-            # Marcar deals como completados
+            # Mark deals as completed
             for deal in amount_deals:
                 deal.bitcoin_txid = simulated_txid
                 deal.status = 'completed'
                 deal.completed_at = datetime.now(timezone.utc)
             
-            # Notificar vendedores (Ana)
+            # Notify sellers (Ana)
             await notify_sellers_batch_sent(amount_deals, simulated_txid)
             
             logger.info(f"Simulated Bitcoin batch sent: {simulated_txid} for {len(amount_deals)} deals")
@@ -1502,14 +1523,14 @@ async def send_bitcoin_batch(pending_deals, db):
 
 async def notify_sellers_batch_sent(deals, txid):
     """
-    Notificar a vendedores que se envió Bitcoin - Paso 16 final
-    Ana recibe confirmación de que recibió Bitcoin
+    Notify sellers that Bitcoin was sent - Step 16 final
+    Ana receives confirmation that she received Bitcoin
     """
     app = Application.builder().token(BOT_TOKEN).build()
     
     for deal in deals:
         amount = deal.amount_sats
-        amount_text = f"{amount:,}"
+        amount_text = format_amount(amount)
         
         try:
             await app.bot.send_message(
@@ -1532,12 +1553,12 @@ Thanks for using P2P Swap Bot!
             logger.error(f"Failed to notify seller {deal.seller_id}: {e}")
 
 # =============================================================================
-# SECCIÓN 11: FUNCIÓN PRINCIPAL Y CONFIGURACIÓN
+# LNPROXY PRIVACY HANDLING
 # =============================================================================
 
 async def handle_lnproxy_failure(update, deal_id, invoice):
     """
-    Manejar cuando lnproxy falla - mostrar UI de decisión a Carlos
+    Handle when lnproxy fails - show decision UI to Carlos
     """
     from telegram import InlineKeyboardButton, InlineKeyboardMarkup
     
@@ -1548,27 +1569,27 @@ async def handle_lnproxy_failure(update, deal_id, invoice):
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     await update.message.reply_text(f"""
-🔒 **Privacy Enhancement Failed - Deal #{deal_id}**
+🔒 Privacy Enhancement Failed - Deal #{deal_id}
 
 lnproxy service could not wrap your invoice after 3 attempts.
 
-**Your options:**
+Your options:
 
-**🔓 Reveal Original Invoice**
+🔓 Reveal Original Invoice
 - Your Lightning node will be visible to the payer
 - Swap proceeds immediately
 
-**⏳ Keep Trying (Recommended)**
+⏳ Keep Trying (Recommended)
 - Retry lnproxy every 20 minutes for 2 hours
 - Maintains your privacy
 - Auto-cancel if unsuccessful after 2 hours
 
-**Choose your preference:**
+Choose your preference:
     """, reply_markup=reply_markup, parse_mode='Markdown')
 
 async def handle_reveal_invoice(query, user, deal_id, db):
     """
-    Manejar cuando Carlos decide revelar su invoice original
+    Handle when Carlos decides to reveal his original invoice
     """
     deal = db.query(Deal).filter(Deal.id == deal_id, Deal.seller_id == user.id).first()
     
@@ -1577,35 +1598,35 @@ async def handle_reveal_invoice(query, user, deal_id, db):
         db.close()
         return
     
-    # Actualizar deal con invoice original
+    # Update deal with original invoice
     deal.status = 'lightning_invoice_received'
     deal.current_stage = 'payment_required'
     deal.stage_expires_at = datetime.now(timezone.utc) + timedelta(hours=LIGHTNING_PAYMENT_HOURS)
     db.commit()
     
-    amount_text = f"{deal.amount_sats:,}"
+    amount_text = format_amount(deal.amount_sats)
     
     await query.edit_message_text(f"""
-✅ **Invoice Revealed - Deal #{deal_id}**
+✅ Invoice Revealed - Deal #{deal_id}
 
-**Status:** Original invoice will be used
-**Privacy:** Your Lightning node will be visible to payer
-**Amount:** {amount_text} sats
+Status: Original invoice will be used
+Privacy: Your Lightning node will be visible to payer
+Amount: {amount_text} sats
 
 The seller will be notified when conditions are met.
 Bot will verify payment and complete the swap.
 
-**Time limit:** {LIGHTNING_PAYMENT_HOURS} hours ⏰
+Time limit: {LIGHTNING_PAYMENT_HOURS} hours ⏰
     """, parse_mode='Markdown')
     
     db.close()
     
-    # Llamar función coordinada para verificar si notificar a Ana
+    # Call coordinated function to check if Ana should be notified
     await check_and_notify_ana(deal_id)
 
 async def handle_retry_lnproxy(query, user, deal_id, db):
     """
-    Manejar cuando Carlos decide seguir intentando lnproxy
+    Handle when Carlos decides to keep trying lnproxy
     """
     deal = db.query(Deal).filter(Deal.id == deal_id, Deal.seller_id == user.id).first()
     
@@ -1614,168 +1635,30 @@ async def handle_retry_lnproxy(query, user, deal_id, db):
         db.close()
         return
     
-    # Actualizar deal para reintentos
+    # Update deal for retries
     deal.status = 'retrying_lnproxy'
     deal.current_stage = 'privacy_retry'
-    deal.stage_expires_at = datetime.now(timezone.utc) + timedelta(hours=2)  # 2 horas para reintentos
+    deal.stage_expires_at = datetime.now(timezone.utc) + timedelta(hours=2)  # 2 hours for retries
     db.commit()
     db.close()
     
     await query.edit_message_text(f"""
-⏳ **Privacy Retry Mode - Deal #{deal_id}**
+⏳ Privacy Retry Mode - Deal #{deal_id}
 
-**Status:** Will retry lnproxy every 20 minutes
-**Duration:** Up to 2 hours maximum
-**Privacy:** Your Lightning node remains hidden
+Status: Will retry lnproxy every 20 minutes
+Duration: Up to 2 hours maximum
+Privacy: Your Lightning node remains hidden
 
 Bot will attempt to wrap your invoice periodically.
 If successful within 2 hours, swap proceeds privately.
 If unsuccessful after 2 hours, deal will be cancelled.
 
-**You can change your mind anytime with:** /reveal {deal_id}
+You can change your mind anytime with: /reveal {deal_id}
     """, parse_mode='Markdown')
-
-async def monitor_lnproxy_retries():
-    """
-    Monitor para reintentos de lnproxy cada 20 minutos por 2 horas máximo
-    """
-    while True:
-        try:
-            db = get_db()
-            
-            # Buscar deals esperando reintentos de lnproxy
-            retry_deals = db.query(Deal).filter(
-                Deal.status == 'retrying_lnproxy',
-                Deal.current_stage == 'privacy_retry'
-            ).all()
-            
-            for deal in retry_deals:
-                # Verificar si el deal ha expirado (2 horas)
-                if deal.stage_expires_at and datetime.now(timezone.utc) > deal.stage_expires_at:
-                    logger.info(f"Deal {deal.id}: lnproxy retry timeout after 2 hours")
-                    await handle_lnproxy_timeout(deal)
-                    continue
-                
-                # Verificar si es tiempo de reintentar (cada 20 minutos)
-                last_attempt = deal.last_updated
-                minutes_since_last = (datetime.now(timezone.utc) - last_attempt).total_seconds() / 60
-                
-                if minutes_since_last >= 20:
-                    logger.info(f"Deal {deal.id}: Starting 20-minute lnproxy retry")
-                    await perform_lnproxy_retry(deal)
-            
-            db.close()
-            
-        except Exception as e:
-            logger.error(f"Error in monitor_lnproxy_retries: {e}")
-        
-        # Verificar cada 5 minutos
-        await asyncio.sleep(300)
-
-async def handle_lnproxy_timeout(deal):
-    """
-    Manejar timeout de lnproxy después de 2 horas - cancelar deal y refund
-    """
-    try:
-        db = get_db()
-        
-        # Actualizar deal como expirado
-        deal.status = 'expired_privacy_timeout'
-        
-        # Reactivar la oferta de Ana para que regrese al canal
-        offer = db.query(Offer).filter(Offer.id == deal.offer_id).first()
-        if offer:
-            offer.status = 'active'
-            offer.taken_by = None
-            offer.taken_at = None
-            
-            logger.info(f"Deal {deal.id}: Ana's offer {offer.id} returned to channel after lnproxy timeout")
-            
-            # Notificar a Carlos (buyer) sobre el timeout y refund
-            app = Application.builder().token(BOT_TOKEN).build()
-            await app.bot.send_message(
-                chat_id=deal.buyer_id,  # Carlos - el comprador
-                text=f"""
-Deal #{deal.id} has expired after 2 hours.
-
-Your Bitcoin will be returned to the original sending address minus network fees.
-
-Refund will be processed in the next batch.
-                """
-            )
-        
-        db.commit()
-        db.close()
-        
-    except Exception as e:
-        logger.error(f"Error handling lnproxy timeout for deal {deal.id}: {e}")
-
-async def perform_lnproxy_retry(deal):
-    """
-    Realizar reintento de lnproxy para un deal específico
-    """
-    try:
-        db = get_db()
-        
-        # Obtener invoice original del deal
-        original_invoice = deal.lightning_invoice
-        
-        logger.info(f"Deal {deal.id}: Starting lnproxy retry attempt")
-        
-        # Intentar lnproxy por 5 minutos máximo (3 intentos)
-        from lnproxy_utils import wrap_invoice_for_privacy
-        import time
-        
-        max_attempts = 3
-        timeout_minutes = 5
-        start_time = time.time()
-        
-        for attempt in range(max_attempts):
-            # Verificar timeout (5 minutos máximo)
-            elapsed = (time.time() - start_time) / 60
-            if elapsed >= timeout_minutes:
-                logger.warning(f"Deal {deal.id}: lnproxy retry timeout after {elapsed:.1f} minutes")
-                break
-                
-            logger.info(f"Deal {deal.id}: lnproxy retry attempt {attempt + 1}/{max_attempts}")
-            success, result = wrap_invoice_for_privacy(original_invoice)
-            
-            if success and result.get('wrapped_invoice'):
-                # lnproxy funcionó! Actualizar deal
-                deal.lightning_invoice = result['wrapped_invoice']
-                deal.status = 'lightning_invoice_received'
-                deal.current_stage = 'payment_required'
-                deal.stage_expires_at = datetime.now(timezone.utc) + timedelta(hours=LIGHTNING_PAYMENT_HOURS)
-                deal.last_updated = datetime.now(timezone.utc)
-                db.commit()
-                
-                logger.info(f"Deal {deal.id}: lnproxy retry successful on attempt {attempt + 1}")
-                
-                # Verificar si Ana puede ser notificada
-                await check_and_notify_ana(deal.id)
-                
-                db.close()
-                return True
-            else:
-                logger.warning(f"Deal {deal.id}: lnproxy retry attempt {attempt + 1} failed")
-                if attempt < max_attempts - 1:
-                    time.sleep(30)  # Esperar 30 segundos entre intentos
-        
-        # Actualizar timestamp para próximo reintento en 20 minutos
-        deal.last_updated = datetime.now(timezone.utc)
-        db.commit()
-        db.close()
-        
-        logger.info(f"Deal {deal.id}: lnproxy retry failed, will try again in 20 minutes")
-        return False
-        
-    except Exception as e:
-        logger.error(f"Error performing lnproxy retry for deal {deal.id}: {e}")
-        return False
 
 async def reveal_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
-    Comando /reveal - Carlos puede cambiar de opinión y revelar invoice original
+    Command /reveal - Carlos can change his mind and reveal original invoice
     """
     user = update.effective_user
     
@@ -1799,7 +1682,7 @@ if you previously chose to keep trying privacy enhancement.
     db = get_db()
     deal = db.query(Deal).filter(
         Deal.id == deal_id,
-        Deal.seller_id == user.id,  # Carlos debe ser el seller (quien envía invoice)
+        Deal.seller_id == user.id,  # Carlos must be the seller (who sends invoice)
         Deal.status == 'retrying_lnproxy'
     ).first()
     
@@ -1808,13 +1691,13 @@ if you previously chose to keep trying privacy enhancement.
         await update.message.reply_text(f"Deal #{deal_id} not found or not eligible for reveal")
         return
     
-    # Cambiar de reintentos a invoice revelado
+    # Change from retries to revealed invoice
     deal.status = 'lightning_invoice_received'
     deal.current_stage = 'payment_required'
     deal.stage_expires_at = datetime.now(timezone.utc) + timedelta(hours=LIGHTNING_PAYMENT_HOURS)
     db.commit()
     
-    amount_text = f"{deal.amount_sats:,}"
+    amount_text = format_amount(deal.amount_sats)
     
     await update.message.reply_text(f"""
 Deal #{deal_id} updated.
@@ -1830,12 +1713,158 @@ The seller will be notified when conditions are met.
     
     db.close()
     
-    # Verificar si Ana puede ser notificada ahora
+    # Check if Ana can be notified now
     await check_and_notify_ana(deal_id)
+
+# =============================================================================
+# LNPROXY RETRY MONITORING
+# =============================================================================
+
+async def monitor_lnproxy_retries():
+    """
+    Monitor for lnproxy retries every 20 minutes for 2 hours maximum
+    """
+    while True:
+        try:
+            db = get_db()
+            
+            # Find deals waiting for lnproxy retries
+            retry_deals = db.query(Deal).filter(
+                Deal.status == 'retrying_lnproxy',
+                Deal.current_stage == 'privacy_retry'
+            ).all()
+            
+            for deal in retry_deals:
+                # Check if deal has expired (2 hours)
+                if deal.stage_expires_at and datetime.now(timezone.utc) > deal.stage_expires_at:
+                    logger.info(f"Deal {deal.id}: lnproxy retry timeout after 2 hours")
+                    await handle_lnproxy_timeout(deal)
+                    continue
+                
+                # Check if it's time to retry (every 20 minutes)
+                last_attempt = deal.last_updated
+                minutes_since_last = (datetime.now(timezone.utc) - last_attempt).total_seconds() / 60
+                
+                if minutes_since_last >= 20:
+                    logger.info(f"Deal {deal.id}: Starting 20-minute lnproxy retry")
+                    await perform_lnproxy_retry(deal)
+            
+            db.close()
+            
+        except Exception as e:
+            logger.error(f"Error in monitor_lnproxy_retries: {e}")
+        
+        # Check every 5 minutes
+        await asyncio.sleep(300)
+
+async def handle_lnproxy_timeout(deal):
+    """
+    Handle lnproxy timeout after 2 hours - cancel deal and refund
+    """
+    try:
+        db = get_db()
+        
+        # Update deal as expired
+        deal.status = 'expired_privacy_timeout'
+        
+        # Reactivate Ana's offer to return to channel
+        offer = db.query(Offer).filter(Offer.id == deal.offer_id).first()
+        if offer:
+            offer.status = 'active'
+            offer.taken_by = None
+            offer.taken_at = None
+            
+            logger.info(f"Deal {deal.id}: Ana's offer {offer.id} returned to channel after lnproxy timeout")
+            
+            # Notify Carlos (buyer) about timeout and refund
+            app = Application.builder().token(BOT_TOKEN).build()
+            await app.bot.send_message(
+                chat_id=deal.buyer_id,  # Carlos - the buyer
+                text=f"""
+Deal #{deal.id} has expired after 2 hours.
+
+Your Bitcoin will be returned to the original sending address minus network fees.
+
+Refund will be processed in the next batch.
+                """
+            )
+        
+        db.commit()
+        db.close()
+        
+    except Exception as e:
+        logger.error(f"Error handling lnproxy timeout for deal {deal.id}: {e}")
+
+async def perform_lnproxy_retry(deal):
+    """
+    Perform lnproxy retry for a specific deal
+    """
+    try:
+        db = get_db()
+        
+        # Get original invoice from deal
+        original_invoice = deal.lightning_invoice
+        
+        logger.info(f"Deal {deal.id}: Starting lnproxy retry attempt")
+        
+        # Try lnproxy for 5 minutes maximum (3 attempts)
+        from lnproxy_utils import wrap_invoice_for_privacy
+        import time
+        
+        max_attempts = 3
+        timeout_minutes = 5
+        start_time = time.time()
+        
+        for attempt in range(max_attempts):
+            # Check timeout (5 minutes maximum)
+            elapsed = (time.time() - start_time) / 60
+            if elapsed >= timeout_minutes:
+                logger.warning(f"Deal {deal.id}: lnproxy retry timeout after {elapsed:.1f} minutes")
+                break
+                
+            logger.info(f"Deal {deal.id}: lnproxy retry attempt {attempt + 1}/{max_attempts}")
+            success, result = wrap_invoice_for_privacy(original_invoice)
+            
+            if success and result.get('wrapped_invoice'):
+                # lnproxy worked! Update deal
+                deal.lightning_invoice = result['wrapped_invoice']
+                deal.status = 'lightning_invoice_received'
+                deal.current_stage = 'payment_required'
+                deal.stage_expires_at = datetime.now(timezone.utc) + timedelta(hours=LIGHTNING_PAYMENT_HOURS)
+                deal.last_updated = datetime.now(timezone.utc)
+                db.commit()
+                
+                logger.info(f"Deal {deal.id}: lnproxy retry successful on attempt {attempt + 1}")
+                
+                # Check if Ana can be notified
+                await check_and_notify_ana(deal.id)
+                
+                db.close()
+                return True
+            else:
+                logger.warning(f"Deal {deal.id}: lnproxy retry attempt {attempt + 1} failed")
+                if attempt < max_attempts - 1:
+                    time.sleep(30)  # Wait 30 seconds between attempts
+        
+        # Update timestamp for next retry in 20 minutes
+        deal.last_updated = datetime.now(timezone.utc)
+        db.commit()
+        db.close()
+        
+        logger.info(f"Deal {deal.id}: lnproxy retry failed, will try again in 20 minutes")
+        return False
+        
+    except Exception as e:
+        logger.error(f"Error performing lnproxy retry for deal {deal.id}: {e}")
+        return False
+
+# =============================================================================
+# MAIN FUNCTION AND APPLICATION SETUP
+# =============================================================================
 
 def main():
     """
-    Función principal del bot - Configura todos los handlers y monitores
+    Main bot function - Configure all handlers and monitors
     """
     if not BOT_TOKEN:
         logger.error("TELEGRAM_BOT_TOKEN not configured")
@@ -1844,13 +1873,13 @@ def main():
     if not OFFERS_CHANNEL_ID:
         logger.warning("OFFERS_CHANNEL_ID not configured - channel posting disabled")
     
-    # Crear tablas de base de datos
+    # Create database tables
     create_tables()
     
-    # Crear aplicación de Telegram
+    # Create Telegram application
     application = Application.builder().token(BOT_TOKEN).build()
 
-    # Iniciar monitores en background (incluyendo el nuevo monitor de timeouts)
+    # Start background monitors in threads
     monitor_thread = threading.Thread(target=lambda: asyncio.run(monitor_confirmations()))
     monitor_thread.daemon = True
     monitor_thread.start()
@@ -1859,26 +1888,22 @@ def main():
     monitor_thread_ln.daemon = True
     monitor_thread_ln.start() 
 
-    # NUEVO: Monitor de timeouts expirados
+    # Monitor expired timeouts
     timeout_thread = threading.Thread(target=lambda: asyncio.run(monitor_expired_timeouts()))
     timeout_thread.daemon = True
     timeout_thread.start()
 
-    # Monitor de reintentos lnproxy
+    # Monitor lnproxy retries
     lnproxy_retry_thread = threading.Thread(target=lambda: asyncio.run(monitor_lnproxy_retries()))
     lnproxy_retry_thread.daemon = True
     lnproxy_retry_thread.start()
 
-    # NUEVO: Monitor de ofertas expiradas (48h)
-    offers_thread = threading.Thread(target=lambda: asyncio.run(monitor_expired_timeouts()))
-    offers_thread.daemon = True
-    offers_thread.start()
-
+    # Bitcoin batch processing
     batch_thread = threading.Thread(target=lambda: asyncio.run(process_bitcoin_batches()))
     batch_thread.daemon = True
     batch_thread.start()
 
-    # Agregar handlers de comandos
+    # Add command handlers
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("profile", profile))
@@ -1892,10 +1917,10 @@ def main():
     application.add_handler(CommandHandler("address", address_command))
     application.add_handler(CommandHandler("reveal", reveal_command))
     
-    # Handler para botones
+    # Button handler
     application.add_handler(CallbackQueryHandler(button_handler))
     
-    # Iniciar bot
+    # Start bot
     logger.info("Starting P2P Swap Bot...")
     application.run_polling(
         drop_pending_updates=True,
@@ -1904,4 +1929,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
