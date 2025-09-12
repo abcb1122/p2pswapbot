@@ -145,26 +145,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Command /help - Information about how to use the bot"""
-    help_text = """
-📖 How it works:
-
-1. Create swap offers
-2. Others take your offers  
-3. Automatic escrow handles exchange
-4. Safe Lightning ↔ Bitcoin swaps
-
-Commands:
-/swapout - Sell Lightning for Bitcoin
-/swapin - Buy Lightning with Bitcoin
-/offers - View your active offers
-/take [ID] - Take an offer
-/deals - Your active swaps
-/profile - View your stats
-
-Security: Multisig escrow, no custody
-Channel: @btcp2pswapoffers
-    """
-    await update.message.reply_text(help_text)
+    await update.message.reply_text(msg.get_message('MSG-002'))
 
 async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Command /profile - View user statistics"""
@@ -175,7 +156,7 @@ async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     db.close()
     
     if not user_data:
-        await update.message.reply_text("❌ Register first: /start")
+        await update.message.reply_text(msg.get_message('MSG-003'))
         return
     
     profile_text = f"""
@@ -213,7 +194,7 @@ async def swapout(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     await update.message.reply_text(
-        "Swap Out: Lightning ⚡ → Bitcoin ₿\n\nSelect amount:",
+        msg.get_message('MSG-035'),
         reply_markup=reply_markup
     )
 
@@ -228,7 +209,7 @@ async def swapin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     await update.message.reply_text(
-        "Swap In: Bitcoin ₿ → Lightning ⚡\n\nSelect amount:",
+        msg.get_message('MSG-036'),
         reply_markup=reply_markup
     )
 
@@ -391,18 +372,13 @@ async def take(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
     
     if not context.args:
-        await update.message.reply_text("""
-❌ Usage: /take [offer_id]
-
-Example: /take 5
-See offers: /offers
-        """)
+        await update.message.reply_text(msg.get_message('MSG-005'))
         return
 
     try:
         offer_id = int(context.args[0])
     except ValueError:
-        await update.message.reply_text("❌ Invalid offer ID")
+        await update.message.reply_text(msg.get_message('MSG-006'))
         return
     
     db = get_db()
