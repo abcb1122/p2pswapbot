@@ -5,3 +5,4 @@ python-telegram-bot==21.3
 bitcoinlib==0.7.5
 python-dotenv==1.0.0
 sqlalchemy==2.0.23
+pyyaml==6.0.2

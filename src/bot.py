@@ -33,9 +33,13 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Cont
 
 # Import database models
 from database.models import get_db, User, Offer, Deal, create_tables
+from message_manager import MessageManager
 
 # Load environment variables
 load_dotenv()
+
+# Global message manager instance
+msg = None
 
 # =============================================================================
 # CORE CONFIGURATION - MODIFY HERE FOR QUICK CHANGES
@@ -137,23 +141,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     
     db.close()
     
-    welcome_message = """
-🔄 P2P Bitcoin Swap Bot
-
-Welcome!
-
-Commands:
-/swapout - Lightning ⚡ → Bitcoin ₿
-/swapin - Bitcoin ₿ → Lightning ⚡  
-/offers - View your active offers
-/profile - Your stats
-/help - More info
-
-Channel: @btcp2pswapoffers
-Status: Live & Ready ✅
-    """
-    
-    await update.message.reply_text(welcome_message)
+    await update.message.reply_text(msg.get_message('MSG-001'))
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Command /help - Information about how to use the bot"""
@@ -1875,6 +1863,16 @@ def main():
     
     # Create database tables
     create_tables()
+    
+    # Initialize MessageManager
+    global msg
+    try:
+        msg = MessageManager()
+        logger.info("MessageManager initialized successfully")
+    except Exception as e:
+        logger.error(f"MessageManager initialization failed: {e}")
+        logger.warning("Bot will continue with hardcoded fallback messages")
+        msg = None
     
     # Create Telegram application
     application = Application.builder().token(BOT_TOKEN).build()
