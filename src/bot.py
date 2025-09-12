@@ -494,12 +494,12 @@ async def accept_deal(query, user, deal_id, db):
     
     if not deal:
         db.close()
-        await query.edit_message_text("❌ Deal not found or not yours")
+        await query.edit_message_text(msg.get_message('MSG-011'))
         return
     
     if deal.status != 'pending':
         db.close()
-        await query.edit_message_text(f"❌ Deal #{deal_id} already processed")
+        await query.edit_message_text(msg.get_message('MSG-012', deal_id=deal_id))
         return
     
     # Update deal state with timeouts
@@ -519,16 +519,16 @@ async def accept_deal(query, user, deal_id, db):
     db.close()
     
     # Step 7: First message with Bitcoin address
-    await query.edit_message_text(f"""
-💰 Bitcoin Deposit Required - Deal #{deal_id}
-
-Send exactly {amount_text} sats to this address:
-    """, parse_mode='Markdown')
+    await query.edit_message_text(
+        msg.get_message('MSG-013', deal_id=deal_id, amount_text=amount_text), 
+        parse_mode='Markdown'
+    )
     
     # Send address separately for easy copying
-    await query.message.reply_text(f"""
-`{fixed_address}`
-    """, parse_mode='Markdown')
+    await query.message.reply_text(
+        msg.get_message('MSG-014', fixed_address=fixed_address), 
+        parse_mode='Markdown'
+    )
     
     # Second message with /txid instructions
     await query.message.reply_text(f"""
