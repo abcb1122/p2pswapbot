@@ -1,0 +1,641 @@
+# P2P Bitcoin Swap Bot - Centralized Messages
+# Based on Flow Bible (docs/service-flow.md) and complete message mapping
+# Easy to edit for non-technical users - just modify the text between quotes
+
+# CARLOS (BUYER) MESSAGES - Lightning buyer who pays Bitcoin to receive Lightning
+carlos_messages:
+  # Initial Commands
+  start_welcome:
+    id: "MSG-001"
+    description: "Welcome message when user registers with /start"
+    text: |
+      🔄 P2P Bitcoin Swap Bot
+
+      Welcome!
+
+      Commands:
+      /swapout - Lightning ⚡ → Bitcoin ₿
+      /swapin - Bitcoin ₿ → Lightning ⚡  
+      /offers - View your active offers
+      /profile - Your stats
+      /help - More info
+
+      Channel: @btcp2pswapoffers
+      Status: Live & Ready ✅
+
+  help_command:
+    id: "MSG-002"
+    description: "Help information when user uses /help"
+    text: |
+      📖 How it works:
+
+      1. Create swap offers
+      2. Others take your offers  
+      3. Automatic escrow handles exchange
+      4. Safe Lightning ↔ Bitcoin swaps
+
+      Commands:
+      /swapout - Sell Lightning for Bitcoin
+      /swapin - Buy Lightning with Bitcoin
+      /offers - View your active offers
+      /take [ID] - Take an offer
+      /deals - Your active swaps
+      /profile - View your stats
+
+      Security: Multisig escrow, no custody
+      Channel: @btcp2pswapoffers
+
+  # Profile Messages
+  profile_not_registered:
+    id: "MSG-003"
+    description: "Error when unregistered user tries to see profile"
+    text: "❌ Register first: /start"
+
+  profile_details:
+    id: "MSG-004"
+    description: "User profile information display"
+    text: |
+      👤 **Your Profile**
+
+      ID: {user_data.telegram_id}
+      User: @{username}
+      Name: {user_data.first_name}
+
+      **Stats:**
+      Completed: {user_data.total_deals}
+      Rating: {rating_stars} ({user_data.reputation_score}/5.0)
+      Volume: {format_amount(user_data.total_volume)} sats
+
+      **Bitcoin address:** {bitcoin_address}
+
+  # Taking Offers - CARLOS FLOW
+  take_usage_error:
+    id: "MSG-005"
+    description: "Error when /take used without offer ID"
+    text: |
+      ❌ Usage: /take [offer_id]
+
+      Example: /take 5
+      See offers: /offers
+
+  take_invalid_id:
+    id: "MSG-006"
+    description: "Error when offer ID is invalid format"
+    text: "❌ Invalid offer ID"
+
+  take_offer_not_found:
+    id: "MSG-007"
+    description: "Error when offer not found or already taken"
+    text: "❌ Offer #{offer_id} not found or already taken"
+
+  take_own_offer:
+    id: "MSG-008"
+    description: "Error when user tries to take own offer"
+    text: "❌ Cannot take your own offer"
+
+  # Deal Initiation
+  deal_started_swapout:
+    id: "MSG-009"
+    description: "Initial message when Carlos takes swapout offer"
+    text: |
+      🤝 Deal #{offer_id} Started
+
+      Your role: Lightning Buyer ⚡
+      You get: {amount_text} Lightning sats
+      You pay: {amount_text} sats onchain
+
+      ⚠️ IMPORTANT WARNINGS:
+      - Send EXACT amount or risk losing sats
+      - This operation cannot be cancelled once started
+      - Follow instructions carefully
+
+      You have {TXID_TIMEOUT_MINUTES} minutes to accept and send TXID ⏱️
+
+  deal_started_swapin:
+    id: "MSG-010"
+    description: "Initial message when Carlos takes swapin offer"
+    text: |
+      🤝 Deal #{offer_id} Started
+
+      Swap in functionality - To be implemented
+
+  # Accept Deal - Bitcoin Address Instructions
+  accept_deal_not_found:
+    id: "MSG-011"
+    description: "Error when deal not found for acceptance"
+    text: "❌ Deal not found or not yours"
+
+  accept_deal_already_processed:
+    id: "MSG-012"
+    description: "Error when deal already processed"
+    text: "❌ Deal #{deal_id} already processed"
+
+  accept_deal_address_required:
+    id: "MSG-013"
+    description: "Message 1: Bitcoin deposit required"
+    text: |
+      💰 Bitcoin Deposit Required - Deal #{deal_id}
+
+      Send exactly {amount_text} sats to this address:
+
+  accept_deal_address_display:
+    id: "MSG-014"
+    description: "Message 2: Bitcoin address in monospace"
+    text: "`{fixed_address}`"
+
+  accept_deal_txid_instructions:
+    id: "MSG-015"
+    description: "Message 3: TXID submission instructions"
+    text: |
+      Next step: Report your TXID
+
+      Send {amount_text} sats to the address shared above and submit the transaction ID using /txid abc1234def567890
+
+      Critical: Send the exact amount or risk losing your funds.
+
+      You have {TXID_TIMEOUT_MINUTES} minutes to send TXID.
+
+      Once the tx gets 3 confirmations you will receive a new message to send a Lightning Network invoice.
+
+  # Cancel Deal
+  cancel_deal_not_found:
+    id: "MSG-016"
+    description: "Error when deal not found for cancellation"
+    text: "❌ Deal not found or not yours"
+
+  cancel_deal_success:
+    id: "MSG-017"
+    description: "Confirmation when deal cancelled successfully"
+    text: |
+      ❌ Deal #{deal_id} Cancelled
+
+      The offer is now available again in the channel.
+      Others can take it with /take {deal.offer_id}
+
+  # TXID Submission
+  txid_usage_error:
+    id: "MSG-018"
+    description: "Error when /txid used without transaction hash"
+    text: |
+      ❌ Usage: /txid [transaction_id]
+
+      Example: /txid abc1234def567890...
+
+  txid_no_active_deal:
+    id: "MSG-019"
+    description: "Error when no active deal requires Bitcoin deposit"
+    text: "❌ No active deal found requiring Bitcoin deposit"
+
+  txid_received_confirmation:
+    id: "MSG-020"
+    description: "Confirmation when TXID received and monitoring started"
+    text: |
+      ⏳ TXID Received - Deal #{deal.id}
+
+      Status: Waiting confirmations (0/{CONFIRMATION_COUNT})
+      Amount: {amount_text} sats
+
+      We'll notify you when confirmed.
+      Maximum time: 48 hours (auto-refund if not confirmed)
+
+      Next: Lightning invoice setup after confirmation.
+
+  # Bitcoin Confirmations - Automatic Notifications
+  bitcoin_confirmed_request_invoice:
+    id: "MSG-021"
+    description: "Automatic notification when 3 confirmations reached"
+    text: |
+      ✅ Bitcoin Confirmed - Deal #{deal.id}
+
+      Your deposit: {amount_text} sats confirmed!
+      Status: Ready for Lightning setup
+
+      Next step: Generate Lightning invoice
+
+      Create invoice for {amount_text} sats in your wallet and send it here.
+
+      Reply with: /invoice [your_lightning_invoice]
+      Time limit: {LIGHTNING_INVOICE_HOURS} hours ⏰
+
+  # Lightning Invoice Submission
+  invoice_usage_error:
+    id: "MSG-022"
+    description: "Error when /invoice used without Lightning invoice"
+    text: |
+      ❌ Usage: /invoice [lightning_invoice]
+
+      Example: /invoice lnbc100u1p3xnhl2pp5...
+
+  invoice_invalid_format:
+    id: "MSG-023"
+    description: "Error when Lightning invoice has invalid format"
+    text: "❌ Invalid Lightning invoice format"
+
+  invoice_no_deal_waiting:
+    id: "MSG-024"
+    description: "Error when no deal is waiting for Lightning invoice"
+    text: "❌ No deal found waiting for Lightning invoice"
+
+  invoice_processing_privacy:
+    id: "MSG-025"
+    description: "Notification when invoice received and privacy optimization starting"
+    text: |
+      ⚡ Invoice Received - Deal #{deal.id}
+
+      Your invoice will be optimized for privacy and sent to the counterpart.
+      If privacy enhancement fails, we will inform you to define the next step.
+
+      Status: Processing privacy enhancement
+
+  invoice_privacy_success:
+    id: "MSG-026"
+    description: "Notification when lnproxy successful"
+    text: |
+      ⚡ Invoice Received - Deal #{deal.id}
+
+      Status: Payment request sent to seller
+      Your invoice: `{invoice[:20]}...`
+      Amount: {amount_text} sats
+
+      The seller will pay your Lightning invoice.
+      Bot will verify payment and complete the swap.
+
+      Time limit: {LIGHTNING_PAYMENT_HOURS} hours ⏰
+
+  # Privacy Enhancement Failure
+  privacy_enhancement_failed:
+    id: "MSG-027"
+    description: "UI when lnproxy fails - decision required"
+    text: |
+      🔒 Privacy Enhancement Failed - Deal #{deal_id}
+
+      lnproxy service could not wrap your invoice after 3 attempts.
+
+      Your options:
+
+      🔓 Reveal Original Invoice
+      - Your Lightning node will be visible to the payer
+      - Swap proceeds immediately
+
+      ⏳ Keep Trying (Recommended)
+      - Retry lnproxy every 20 minutes for 2 hours
+      - Maintains your privacy
+      - Auto-cancel if unsuccessful after 2 hours
+
+      Choose your preference:
+
+  privacy_invoice_revealed:
+    id: "MSG-028"
+    description: "Confirmation when Carlos chooses to reveal original invoice"
+    text: |
+      ✅ Invoice Revealed - Deal #{deal_id}
+
+      Status: Original invoice will be used
+      Privacy: Your Lightning node will be visible to payer
+      Amount: {amount_text} sats
+
+      The seller will be notified when conditions are met.
+      Bot will verify payment and complete the swap.
+
+      Time limit: {LIGHTNING_PAYMENT_HOURS} hours ⏰
+
+  privacy_retry_mode:
+    id: "MSG-029"
+    description: "Confirmation when Carlos chooses to keep trying lnproxy"
+    text: |
+      ⏳ Privacy Retry Mode - Deal #{deal_id}
+
+      Status: Will retry lnproxy every 20 minutes
+      Duration: Up to 2 hours maximum
+      Privacy: Your Lightning node remains hidden
+
+      Bot will attempt to wrap your invoice periodically.
+      If successful within 2 hours, swap proceeds privately.
+      If unsuccessful after 2 hours, deal will be cancelled.
+
+      You can change your mind anytime with: /reveal {deal_id}
+
+  # Reveal Command
+  reveal_usage:
+    id: "MSG-030"
+    description: "Usage instructions for /reveal command"
+    text: |
+      Usage: /reveal [deal_id]
+
+      Example: /reveal 5
+
+      This command allows you to reveal your original Lightning invoice
+      if you previously chose to keep trying privacy enhancement.
+
+  reveal_invalid_id:
+    id: "MSG-031"
+    description: "Error when reveal deal ID is invalid"
+    text: "Invalid deal ID"
+
+  reveal_not_eligible:
+    id: "MSG-032"
+    description: "Error when deal not found or not eligible for reveal"
+    text: "Deal #{deal_id} not found or not eligible for reveal"
+
+  reveal_success:
+    id: "MSG-033"
+    description: "Confirmation when reveal command successful"
+    text: |
+      Deal #{deal_id} updated.
+
+      Your original Lightning invoice will be used.
+      Privacy enhancement cancelled - your Lightning node will be visible to the payer.
+
+      Amount: {amount_text} sats
+      Time limit: {LIGHTNING_PAYMENT_HOURS} hours
+
+      The seller will be notified when conditions are met.
+
+  # Deal Completion - Final notification to Carlos
+  deal_completed_success:
+    id: "MSG-034"
+    description: "Final notification when Lightning payment verified and deal complete"
+    text: |
+      ✅ Deal Completed - #{deal.id}
+
+      Lightning payment of {amount_text} sats confirmed!
+      Your swap out is complete.
+
+      Thanks for using P2P Swap Bot!
+
+# ANA (SELLER) MESSAGES - Lightning seller who receives Bitcoin for sending Lightning
+ana_messages:
+  # Offer Creation
+  swapout_amount_selection:
+    id: "MSG-035"
+    description: "Amount selection buttons for swap out"
+    text: "Swap Out: Lightning ⚡ → Bitcoin ₿\n\nSelect amount:"
+
+  swapin_amount_selection:
+    id: "MSG-036"
+    description: "Amount selection buttons for swap in"
+    text: "Swap In: Bitcoin ₿ → Lightning ⚡\n\nSelect amount:"
+
+  offer_created_swapout:
+    id: "MSG-037"
+    description: "Confirmation when swapout offer created successfully"
+    text: |
+      ✅ Offer Created #{offer_id}
+
+      Swap Out: Lightning → Bitcoin
+      Amount: {amount_text} sats
+      Completed swaps: {total_swaps}
+
+      Your offer is live in @btcp2pswapoffers
+      Relax and wait for someone to take it
+
+  offer_created_swapin:
+    id: "MSG-038"
+    description: "Confirmation when swapin offer created successfully"
+    text: |
+      ✅ Offer Created #{offer_id}
+
+      Swap In: Bitcoin → Lightning  
+      Amount: {amount_text} sats
+      Completed swaps: {total_swaps}
+
+      Your offer is live in @btcp2pswapoffers
+      Relax and wait for someone to take it
+
+  # Critical Coordination - Ana receives address request
+  bitcoin_address_request:
+    id: "MSG-039"
+    description: "Request for Bitcoin address when both conditions met"
+    text: |
+      Bitcoin Confirmed - Deal #{deal.id}
+
+      Bitcoin deposit confirmed: {amount_text} sats
+      Status: Ready for final step
+
+      IMPORTANT: Provide your Bitcoin address first
+      After you send your address, the Lightning invoice will be revealed to complete the swap.
+
+      Send: /address [your_bitcoin_address]
+      Time limit: 2 hours
+
+      Your funds are secured and this step ensures smooth completion.
+
+  # Bitcoin Address Submission
+  address_usage_error:
+    id: "MSG-040"
+    description: "Error when /address used without Bitcoin address"
+    text: |
+      ❌ Usage: /address [bitcoin_address]
+
+      Example: /address tb1q...
+
+  address_invalid_format:
+    id: "MSG-041"
+    description: "Error when Bitcoin address has invalid format"
+    text: "❌ Invalid Bitcoin address format"
+
+  address_no_deal_waiting:
+    id: "MSG-042"
+    description: "Error when no deal is waiting for Bitcoin address"
+    text: "❌ No deal found waiting for Bitcoin address"
+
+  address_saved_confirmation:
+    id: "MSG-043"
+    description: "Confirmation when Bitcoin address saved - Message 1"
+    text: |
+      ✅ Bitcoin Address Saved - Deal #{deal.id}
+
+      Address: `{address}`
+      Amount: {amount_text} sats
+
+      Now please pay the Lightning invoice below:
+
+  lightning_payment_required:
+    id: "MSG-044"
+    description: "Lightning invoice revelation - Message 2"
+    text: |
+      ⚡ Lightning Payment Required
+
+      Pay this invoice to complete your swap:
+
+      `{deal.lightning_invoice}`
+
+      Amount: {amount_text} sats
+      Time limit: 2 hours
+
+      After payment verification, your Bitcoin will be sent in the next batch.
+
+  invoice_not_available:
+    id: "MSG-045"
+    description: "Error when Lightning invoice not available"
+    text: "❌ Lightning invoice not available. Please contact support."
+
+  # Payment Verification Confirmation
+  payment_verified_batch:
+    id: "MSG-046"
+    description: "Notification when Lightning payment verified"
+    text: |
+      ✅ Payment Verified - Deal #{deal.id}
+
+      Lightning payment received and verified!
+      Your {amount_text} sats Bitcoin will be sent in the next batch.
+
+      Your funds are secured and will be sent shortly.
+
+  # Final Bitcoin Settlement
+  bitcoin_sent_notification:
+    id: "MSG-047"
+    description: "Final notification when Bitcoin batch sent to Ana"
+    text: |
+      💰 Bitcoin Sent - Deal #{deal.id}
+
+      Your {amount_text} sats have been sent!
+
+      Transaction: {txid}
+      Address: {deal.seller_bitcoin_address}
+
+      Check testnet blockchain explorer.
+      Swap completed successfully! ✅
+
+      Thanks for using P2P Swap Bot!
+
+# QUERY MESSAGES - Both users can use these
+query_messages:
+  # Offers Command
+  offers_none_available:
+    id: "MSG-048"
+    description: "Message when user has no offers"
+    text: |
+      📋 No offers yet
+
+      Create one:
+      /swapout - Lightning ⚡ → Bitcoin ₿
+      /swapin - Bitcoin ₿ → Lightning ⚡
+
+      Channel: @btcp2pswapoffers
+
+  offers_list_display:
+    id: "MSG-049"
+    description: "Template for displaying user's offers list"
+    text: |
+      📋 Your Offers
+
+      #{offer.id} - {direction} {amount_text} sats
+      {offer_desc}
+      {status_info}
+
+      Total: {len(user_offers)} offers
+
+  # Deals Command
+  deals_none_active:
+    id: "MSG-050"
+    description: "Message when user has no active deals"
+    text: |
+      📋 No active deals
+
+      Create offers:
+      /swapout - Lightning ⚡ → Bitcoin ₿
+      /swapin - Bitcoin ₿ → Lightning ⚡
+
+      Browse: /offers
+
+  deals_list_display:
+    id: "MSG-051"
+    description: "Template for displaying user's active deals"
+    text: |
+      📋 Your Active Deals
+
+      #{deal.id} - {direction} {amount_text} sats
+      Role: {role}
+      Status: {status_text} {status_emoji}
+
+# ERROR AND TIMEOUT MESSAGES - Automatic system messages
+timeout_messages:
+  # TXID Timeout (30 minutes)
+  txid_timeout_buyer:
+    id: "MSG-052"
+    description: "Timeout message to buyer when TXID not provided in 30 min"
+    text: |
+      ❌ Deal #{deal.id} Cancelled
+
+      Timeout: {reason}
+      The offer is available again in the channel.
+
+  txid_timeout_seller:
+    id: "MSG-053"
+    description: "Timeout message to seller when buyer TXID timeout"
+    text: |
+      🔄 Deal #{deal.id} Cancelled
+
+      Reason: {reason}
+      Your offer is active again in @btcp2pswapoffers
+
+  # Bitcoin Confirmation Timeout (48 hours)
+  bitcoin_timeout_buyer:
+    id: "MSG-054"
+    description: "Bitcoin confirmation timeout message to buyer"
+    text: |
+      ⏰ Deal #{deal.id} Expired
+
+      Bitcoin confirmations not received within 48 hours.
+
+      Your funds will return to your wallet automatically.
+
+      TXID: `{deal.buyer_bitcoin_txid}`
+
+  bitcoin_timeout_seller:
+    id: "MSG-055"
+    description: "Bitcoin confirmation timeout message to seller"
+    text: |
+      ⏰ Deal #{deal.id} Expired
+
+      Bitcoin confirmations timeout (48h).
+      Deal cancelled, your offer remains expired.
+
+  # General Timeout (invoice, payment, etc.)
+  general_timeout_both:
+    id: "MSG-056"
+    description: "General timeout message for both users"
+    text: |
+      ❌ Deal #{deal.id} Cancelled
+
+      Timeout: {reason}
+      Deal terminated due to inactivity.
+
+  # lnproxy Timeout (2 hours)
+  lnproxy_timeout_refund:
+    id: "MSG-057"
+    description: "Message when lnproxy retry timeout after 2 hours"
+    text: |
+      Deal #{deal.id} has expired after 2 hours.
+
+      Your Bitcoin will be returned to the original sending address minus network fees.
+
+      Refund will be processed in the next batch.
+
+# CHANNEL MESSAGES - Public channel posts
+channel_messages:
+  # Offer Publications
+  channel_swapout_offer:
+    id: "MSG-058"
+    description: "Public channel post for swapout offers"
+    text: |
+      **Swap Out Offer #{offer_id}**
+
+      **Offering:** {amount_text} sats Lightning
+      **Seeking:** Bitcoin onchain  
+      **User swaps:** {total_swaps}
+
+      Activate this order sending the command /take {offer_id} to @btcp2pswapbot
+
+  channel_swapin_offer:
+    id: "MSG-059"
+    description: "Public channel post for swapin offers"
+    text: |
+      **Swap In Offer #{offer_id}**
+
+      **Offering:** Bitcoin onchain
+      **Seeking:** {amount_text} sats Lightning
+      **User swaps:** {total_swaps}
+
+      Activate this order sending the command /take {offer_id} to @btcp2pswapbot
