@@ -586,11 +586,7 @@ async def txid_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     user = update.effective_user
     
     if not context.args:
-        await update.message.reply_text("""
-❌ Usage: /txid [transaction_id]
-
-Example: /txid abc1234def567890...
-        """)
+        await update.message.reply_text(msg.get_message('txid_usage_error'))
         return
 
     txid = context.args[0].strip()
@@ -604,7 +600,7 @@ Example: /txid abc1234def567890...
     
     if not deal:
         db.close()
-        await update.message.reply_text("❌ No active deal found requiring Bitcoin deposit")
+        await update.message.reply_text(msg.get_message('txid_no_active_deal'))
         return
     
     # Update deal with TXID and timeouts
@@ -620,17 +616,10 @@ Example: /txid abc1234def567890...
     
     db.close()
     
-    await update.message.reply_text(f"""
-⏳ TXID Received - Deal #{deal.id}
-
-Status: Waiting confirmations (0/{CONFIRMATION_COUNT})
-Amount: {amount_text} sats
-
-We'll notify you when confirmed.
-Maximum time: 48 hours (auto-refund if not confirmed)
-
-Next: Lightning invoice setup after confirmation.
-    """, parse_mode='Markdown')
+    await update.message.reply_text(
+        msg.get_message('txid_received_confirmation', deal=deal, amount_text=amount_text),
+        parse_mode='Markdown'
+    )
     
     logger.info(f"User {user.id} reported TXID {txid} for deal {deal.id}")
 
@@ -1131,19 +1120,7 @@ async def monitor_confirmations():
                     
                     await app.bot.send_message(
                         chat_id=deal.buyer_id,
-                        text=f"""
-✅ Bitcoin Confirmed - Deal #{deal.id}
-
-Your deposit: {amount_text} sats confirmed!
-Status: Ready for Lightning setup
-
-Next step: Generate Lightning invoice
-
-Create invoice for {amount_text} sats in your wallet and send it here.
-
-Reply with: /invoice [your_lightning_invoice]
-Time limit: {LIGHTNING_INVOICE_HOURS} hours ⏰
-                        """,
+                        text=msg.get_message('bitcoin_confirmed_request_invoice', deal=deal, amount_text=amount_text),
                         parse_mode='Markdown'
                     )
             
