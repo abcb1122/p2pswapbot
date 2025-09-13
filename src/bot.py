@@ -635,18 +635,20 @@ async def invoice_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     user = update.effective_user
     
     if not context.args:
-        await update.message.reply_text("""
-❌ Usage: /invoice [lightning_invoice]
-
-Example: /invoice lnbc100u1p3xnhl2pp5...
-        """)
+        await update.message.reply_text(
+            msg.get_message('invoice_usage_error'),
+            parse_mode='Markdown'
+        )
         return
 
     invoice = ' '.join(context.args).strip()
     
     # Basic invoice validation
     if not invoice.startswith(('lnbc', 'lntb', 'lnbcrt')):
-        await update.message.reply_text("❌ Invalid Lightning invoice format")
+        await update.message.reply_text(
+            msg.get_message('invoice_invalid_format'),
+            parse_mode='Markdown'
+        )
         return
     
     # Find deal waiting for invoice
@@ -658,7 +660,10 @@ Example: /invoice lnbc100u1p3xnhl2pp5...
     
     if not deal:
         db.close()
-        await update.message.reply_text("❌ No deal found waiting for Lightning invoice")
+        await update.message.reply_text(
+            msg.get_message('invoice_no_deal_waiting'),
+            parse_mode='Markdown'
+        )
         return
     
     # Extract payment hash from invoice
