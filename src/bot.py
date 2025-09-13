@@ -674,14 +674,10 @@ async def invoice_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         payment_hash = "hash_placeholder"
 
     # Notify Carlos that we're processing privacy enhancement
-    await update.message.reply_text(f"""
-⚡ Invoice Received - Deal #{deal.id}
-
-Your invoice will be optimized for privacy and sent to the counterpart.
-If privacy enhancement fails, we will inform you to define the next step.
-
-Status: Processing privacy enhancement
-    """, parse_mode='Markdown')
+    await update.message.reply_text(
+        msg.get_message('MSG-025', deal=deal),
+        parse_mode='Markdown'
+    )
     
     # Attempt lnproxy wrapping - Multiple attempts with timeout
     final_invoice = None
@@ -736,7 +732,18 @@ Status: Processing privacy enhancement
         amount_text = format_amount(amount)
         
         db.close()
-        
+
+        # Notify Carlos of successful privacy enhancement
+        await update.message.reply_text(
+            msg.get_message('MSG-026',
+                deal=deal,
+                invoice=final_invoice,
+                amount_text=amount_text,
+                LIGHTNING_PAYMENT_HOURS=LIGHTNING_PAYMENT_HOURS
+            ),
+            parse_mode='Markdown'
+        )
+
         # Call coordinated function to check if Ana should be notified
         await check_and_notify_ana(deal.id)
         
@@ -1514,24 +1521,11 @@ async def handle_lnproxy_failure(update, deal_id, invoice):
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    await update.message.reply_text(f"""
-🔒 Privacy Enhancement Failed - Deal #{deal_id}
-
-lnproxy service could not wrap your invoice after 3 attempts.
-
-Your options:
-
-🔓 Reveal Original Invoice
-- Your Lightning node will be visible to the payer
-- Swap proceeds immediately
-
-⏳ Keep Trying (Recommended)
-- Retry lnproxy every 20 minutes for 2 hours
-- Maintains your privacy
-- Auto-cancel if unsuccessful after 2 hours
-
-Choose your preference:
-    """, reply_markup=reply_markup, parse_mode='Markdown')
+    await update.message.reply_text(
+        msg.get_message('MSG-027', deal_id=deal_id),
+        reply_markup=reply_markup,
+        parse_mode='Markdown'
+    )
 
 async def handle_reveal_invoice(query, user, deal_id, db):
     """
@@ -1552,18 +1546,14 @@ async def handle_reveal_invoice(query, user, deal_id, db):
     
     amount_text = format_amount(deal.amount_sats)
     
-    await query.edit_message_text(f"""
-✅ Invoice Revealed - Deal #{deal_id}
-
-Status: Original invoice will be used
-Privacy: Your Lightning node will be visible to payer
-Amount: {amount_text} sats
-
-The seller will be notified when conditions are met.
-Bot will verify payment and complete the swap.
-
-Time limit: {LIGHTNING_PAYMENT_HOURS} hours ⏰
-    """, parse_mode='Markdown')
+    await query.edit_message_text(
+        msg.get_message('MSG-028',
+            deal_id=deal_id,
+            amount_text=amount_text,
+            LIGHTNING_PAYMENT_HOURS=LIGHTNING_PAYMENT_HOURS
+        ),
+        parse_mode='Markdown'
+    )
     
     db.close()
     
@@ -1588,19 +1578,10 @@ async def handle_retry_lnproxy(query, user, deal_id, db):
     db.commit()
     db.close()
     
-    await query.edit_message_text(f"""
-⏳ Privacy Retry Mode - Deal #{deal_id}
-
-Status: Will retry lnproxy every 20 minutes
-Duration: Up to 2 hours maximum
-Privacy: Your Lightning node remains hidden
-
-Bot will attempt to wrap your invoice periodically.
-If successful within 2 hours, swap proceeds privately.
-If unsuccessful after 2 hours, deal will be cancelled.
-
-You can change your mind anytime with: /reveal {deal_id}
-    """, parse_mode='Markdown')
+    await query.edit_message_text(
+        msg.get_message('MSG-029', deal_id=deal_id),
+        parse_mode='Markdown'
+    )
 
 async def reveal_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
@@ -1609,20 +1590,17 @@ async def reveal_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     user = update.effective_user
     
     if not context.args:
-        await update.message.reply_text("""
-Usage: /reveal [deal_id]
-
-Example: /reveal 5
-
-This command allows you to reveal your original Lightning invoice
-if you previously chose to keep trying privacy enhancement.
-        """)
+        await update.message.reply_text(
+            msg.get_message('MSG-030')
+        )
         return
     
     try:
         deal_id = int(context.args[0])
     except ValueError:
-        await update.message.reply_text("Invalid deal ID")
+        await update.message.reply_text(
+            msg.get_message('MSG-031')
+        )
         return
     
     db = get_db()
@@ -1634,7 +1612,9 @@ if you previously chose to keep trying privacy enhancement.
     
     if not deal:
         db.close()
-        await update.message.reply_text(f"Deal #{deal_id} not found or not eligible for reveal")
+        await update.message.reply_text(
+            msg.get_message('MSG-032', deal_id=deal_id)
+        )
         return
     
     # Change from retries to revealed invoice
@@ -1645,17 +1625,14 @@ if you previously chose to keep trying privacy enhancement.
     
     amount_text = format_amount(deal.amount_sats)
     
-    await update.message.reply_text(f"""
-Deal #{deal_id} updated.
-
-Your original Lightning invoice will be used.
-Privacy enhancement cancelled - your Lightning node will be visible to the payer.
-
-Amount: {amount_text} sats
-Time limit: {LIGHTNING_PAYMENT_HOURS} hours
-
-The seller will be notified when conditions are met.
-    """)
+    await update.message.reply_text(
+        msg.get_message('MSG-033',
+            deal_id=deal_id,
+            amount_text=amount_text,
+            LIGHTNING_PAYMENT_HOURS=LIGHTNING_PAYMENT_HOURS
+        ),
+        parse_mode='Markdown'
+    )
     
     db.close()
     
