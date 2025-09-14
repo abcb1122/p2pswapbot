@@ -792,6 +792,14 @@ async def invoice_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             parse_mode='Markdown'
         )
         return
+
+    # Network validation - reject mainnet invoices (lnbc but not lnbcrt)
+    if invoice.startswith('lnbc') and not invoice.startswith('lnbcrt'):
+        await update.message.reply_text(
+            msg.get_message('MSG-023b'),
+            parse_mode='Markdown'
+        )
+        return
     
     # Find deal waiting for invoice
     db = get_db()

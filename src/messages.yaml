@@ -256,6 +256,11 @@ carlos_messages:
     description: "Error when Lightning invoice has invalid format"
     text: "❌ Invalid Lightning invoice format"
 
+  invoice_mainnet_rejected:
+    id: "MSG-023b"
+    description: "Error when mainnet Lightning invoice provided"
+    text: "❌ Mainnet Lightning invoices not supported. Use testnet (lntb) or regtest (lnbcrt) invoices only."
+
   invoice_no_deal_waiting:
     id: "MSG-024"
     description: "Error when no deal is waiting for Lightning invoice"

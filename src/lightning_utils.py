@@ -185,6 +185,10 @@ def validate_lightning_invoice(invoice: str) -> Tuple[bool, Optional[Dict]]:
         # Basic format check
         if not invoice.startswith(('lnbc', 'lntb', 'lnbcrt')):
             return False, None
+
+        # Network validation - reject mainnet invoices (lnbc but not lnbcrt)
+        if invoice.startswith('lnbc') and not invoice.startswith('lnbcrt'):
+            return False, None
         
         client = LNDClient()
         decoded = client.decode_payment_request(invoice)
