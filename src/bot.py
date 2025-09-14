@@ -628,9 +628,20 @@ async def cancel_deal(query, user, deal_id, db):
     
     offer = db.query(Offer).filter(Offer.id == deal.offer_id).first()
     if offer:
-        offer.status = 'active'
-        offer.taken_by = None
-        offer.taken_at = None
+        # Check if original 48-hour expiration time has passed
+        if offer.expires_at and datetime.now(timezone.utc) > offer.expires_at:
+            # Original time expired - mark as expired, DO NOT return to channel
+            offer.status = 'expired'
+            offer.taken_by = None
+            offer.taken_at = None
+            logger.info(f"Offer {offer.id} marked as expired - original 48h limit passed")
+        else:
+            # Still within 48h - return to channel with remaining time
+            offer.status = 'active'
+            offer.taken_by = None
+            offer.taken_at = None
+            # expires_at preserved - no reset of 48-hour timer
+            logger.info(f"Offer {offer.id} returned to channel with remaining time")
     
     db.commit()
     db.close()
@@ -731,7 +742,10 @@ async def txid_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     db.close()
     
     await update.message.reply_text(
-        msg.get_message('MSG-020', deal=deal, amount_text=amount_text),
+        msg.get_message('MSG-020',
+                       deal=deal,
+                       amount_text=amount_text,
+                       CONFIRMATION_COUNT=CONFIRMATION_COUNT),
         parse_mode='Markdown'
     )
     
@@ -1433,12 +1447,23 @@ async def cancel_deal_and_reactivate_offer(deal, db, reason):
     deal.status = 'cancelled'
     deal.timeout_reason = reason
     
-    # Reactivate offer preserving remaining time
+    # Reactivate offer preserving remaining time with expiration check
     offer = db.query(Offer).filter(Offer.id == deal.offer_id).first()
     if offer:
-        offer.status = 'active'
-        offer.taken_by = None
-        offer.taken_at = None
+        # Check if original 48-hour expiration time has passed
+        if offer.expires_at and datetime.now(timezone.utc) > offer.expires_at:
+            # Original time expired - mark as expired, DO NOT return to channel
+            offer.status = 'expired'
+            offer.taken_by = None
+            offer.taken_at = None
+            logger.info(f"Offer {offer.id} marked as expired - original 48h limit passed")
+        else:
+            # Still within 48h - return to channel with remaining time
+            offer.status = 'active'
+            offer.taken_by = None
+            offer.taken_at = None
+            # expires_at preserved - no reset of 48-hour timer
+            logger.info(f"Offer {offer.id} returned to channel with remaining time")
     
     db.commit()
     
@@ -1832,14 +1857,23 @@ async def handle_lnproxy_timeout(deal):
         # Update deal as expired
         deal.status = 'expired_privacy_timeout'
         
-        # Reactivate Ana's offer to return to channel
+        # Reactivate Ana's offer to return to channel with expiration check
         offer = db.query(Offer).filter(Offer.id == deal.offer_id).first()
         if offer:
-            offer.status = 'active'
-            offer.taken_by = None
-            offer.taken_at = None
-            
-            logger.info(f"Deal {deal.id}: Ana's offer {offer.id} returned to channel after lnproxy timeout")
+            # Check if original 48-hour expiration time has passed
+            if offer.expires_at and datetime.now(timezone.utc) > offer.expires_at:
+                # Original time expired - mark as expired, DO NOT return to channel
+                offer.status = 'expired'
+                offer.taken_by = None
+                offer.taken_at = None
+                logger.info(f"Deal {deal.id}: Ana's offer {offer.id} marked as expired - original 48h limit passed")
+            else:
+                # Still within 48h - return to channel with remaining time
+                offer.status = 'active'
+                offer.taken_by = None
+                offer.taken_at = None
+                # expires_at preserved - no reset of 48-hour timer
+                logger.info(f"Deal {deal.id}: Ana's offer {offer.id} returned to channel after lnproxy timeout")
             
             # Notify Carlos (buyer) about timeout and refund
             app = Application.builder().token(BOT_TOKEN).build()

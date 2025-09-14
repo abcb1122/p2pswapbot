@@ -334,12 +334,21 @@ def cleanup_expired_deals():
         for deal in expired_deals:
             deal.status = 'expired'
             
-            # Reactivar la oferta asociada
+            # Reactivar la oferta asociada con check de expiración
             offer = db.query(Offer).filter(Offer.id == deal.offer_id).first()
             if offer:
-                offer.status = 'active'
-                offer.taken_by = None
-                offer.taken_at = None
+                # Check if original 48-hour expiration time has passed
+                if offer.expires_at and datetime.utcnow() > offer.expires_at:
+                    # Original time expired - mark as expired, DO NOT return to channel
+                    offer.status = 'expired'
+                    offer.taken_by = None
+                    offer.taken_at = None
+                else:
+                    # Still within 48h - return to channel with remaining time
+                    offer.status = 'active'
+                    offer.taken_by = None
+                    offer.taken_at = None
+                    # expires_at preserved - no reset of 48-hour timer
         
         db.commit()
         print(f"🧹 Cleaned up {len(expired_deals)} expired deals")
