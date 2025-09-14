@@ -662,7 +662,7 @@ async def txid_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     )
 
     if not context.args:
-        await update.message.reply_text(msg.get_message('txid_usage_error'))
+        await update.message.reply_text(msg.get_message('MSG-018'))
         return
 
     txid = context.args[0].strip()
@@ -683,14 +683,14 @@ async def txid_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     
     if not deal:
         db.close()
-        await update.message.reply_text(msg.get_message('txid_no_active_deal'))
+        await update.message.reply_text(msg.get_message('MSG-019'))
         return
 
     # Get fixed address for this deal amount
     fixed_address = FIXED_ADDRESSES.get(deal.amount_sats, "ADDRESS_NOT_CONFIGURED")
     if fixed_address == "ADDRESS_NOT_CONFIGURED":
         db.close()
-        await update.message.reply_text(msg.get_message('txid_address_not_configured'))
+        await update.message.reply_text(msg.get_message('MSG-019b'))
         return
 
     # Verify the Bitcoin transaction on blockchain
@@ -701,7 +701,7 @@ async def txid_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         if not verification_result.get('found', False):
             db.close()
             await update.message.reply_text(
-                msg.get_message('txid_verification_failed',
+                msg.get_message('MSG-019c',
                     error=verification_result.get('error', 'Payment not found')),
                 parse_mode='Markdown'
             )
@@ -714,7 +714,7 @@ async def txid_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     except Exception as e:
         logger.error(f"Error verifying Bitcoin transaction {txid}: {e}")
         db.close()
-        await update.message.reply_text(msg.get_message('txid_verification_error'))
+        await update.message.reply_text(msg.get_message('MSG-019d'))
         return
 
     # Update deal with TXID and timeouts
@@ -731,7 +731,7 @@ async def txid_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     db.close()
     
     await update.message.reply_text(
-        msg.get_message('txid_received_confirmation', deal=deal, amount_text=amount_text),
+        msg.get_message('MSG-020', deal=deal, amount_text=amount_text),
         parse_mode='Markdown'
     )
     
@@ -757,7 +757,7 @@ async def invoice_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     if not context.args:
         await update.message.reply_text(
-            msg.get_message('invoice_usage_error'),
+            msg.get_message('MSG-022'),
             parse_mode='Markdown'
         )
         return
@@ -774,7 +774,7 @@ async def invoice_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     # Basic invoice validation
     if not invoice.startswith(('lnbc', 'lntb', 'lnbcrt')):
         await update.message.reply_text(
-            msg.get_message('invoice_invalid_format'),
+            msg.get_message('MSG-023'),
             parse_mode='Markdown'
         )
         return
@@ -789,7 +789,7 @@ async def invoice_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     if not deal:
         db.close()
         await update.message.reply_text(
-            msg.get_message('invoice_no_deal_waiting'),
+            msg.get_message('MSG-024'),
             parse_mode='Markdown'
         )
         return
@@ -1274,7 +1274,7 @@ async def monitor_confirmations():
                     
                     await app.bot.send_message(
                         chat_id=deal.buyer_id,
-                        text=msg.get_message('bitcoin_confirmed_request_invoice', deal=deal, amount_text=amount_text),
+                        text=msg.get_message('MSG-021', deal=deal, amount_text=amount_text),
                         parse_mode='Markdown'
                     )
             
