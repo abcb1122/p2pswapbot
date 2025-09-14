@@ -98,7 +98,7 @@ carlos_messages:
     id: "MSG-009"
     description: "Initial message when Carlos takes swapout offer"
     text: |
-      🤝 Deal #{offer_id} Started
+      🤝🏼 Deal #{offer_id} Started
 
       Your role: Lightning Buyer ⚡
       You get: {amount_text} Lightning sats
@@ -115,7 +115,7 @@ carlos_messages:
     id: "MSG-010"
     description: "Initial message when Carlos takes swapin offer"
     text: |
-      🤝 Deal #{offer_id} Started
+      🤝🏼 Deal #{offer_id} Started
 
       Swap in functionality - To be implemented
 
