@@ -2,7 +2,7 @@
 ===============================================================================
 CENTRALIZED LOGGING CONFIGURATION FOR P2P SWAP BOT
 ===============================================================================
-Provides comprehensive logging infrastructure with async queues, file rotation,
+Provides comprehensive logging infrastructure with synchronous file rotation
 and sensitive data filtering. Implements Issue #30 Phase 1 requirements.
 
 Log Format: YYYY-MM-DD HH:MM:SS | LEVEL | CATEGORY | ENTITY | ACTION | DETAILS
@@ -12,8 +12,6 @@ Categories: USER_INTERACTION, DEAL_STATE, PAYMENT, SYSTEM, ERROR
 import os
 import logging
 import logging.handlers
-import asyncio
-import queue
 import atexit
 from datetime import datetime, timezone
 from pathlib import Path
@@ -22,59 +20,6 @@ from typing import Optional, Dict, Any
 from log_filters import SensitiveDataFilter, LogEventFilter
 
 
-class AsyncLogHandler(logging.Handler):
-    """
-    Async log handler that queues log records to avoid blocking main thread.
-    Essential for maintaining bot performance during high-traffic periods.
-    """
-
-    def __init__(self, handler):
-        super().__init__()
-        self.handler = handler
-        self.queue = queue.Queue()
-        self._stop_event = asyncio.Event()
-        self._task = None
-
-    def emit(self, record):
-        """Add log record to async queue"""
-        try:
-            self.queue.put_nowait(record)
-        except queue.Full:
-            # If queue is full, log synchronously to avoid data loss
-            self.handler.emit(record)
-
-    async def start_async_processing(self):
-        """Start the async log processing task"""
-        self._task = asyncio.create_task(self._process_logs())
-
-    async def _process_logs(self):
-        """Process queued log records asynchronously"""
-        while not self._stop_event.is_set():
-            try:
-                # Process all queued records
-                while not self.queue.empty():
-                    record = self.queue.get_nowait()
-                    self.handler.emit(record)
-                    self.queue.task_done()
-
-                # Small delay to prevent CPU spinning
-                await asyncio.sleep(0.1)
-
-            except Exception as e:
-                # Log async handler errors to stderr to avoid recursion
-                print(f"AsyncLogHandler error: {e}")
-
-    def stop(self):
-        """Stop async processing and flush remaining logs"""
-        if self._task:
-            self._stop_event.set()
-            # Process remaining queued records synchronously
-            while not self.queue.empty():
-                try:
-                    record = self.queue.get_nowait()
-                    self.handler.emit(record)
-                except queue.Empty:
-                    break
 
 
 class SwapBotLogFormatter(logging.Formatter):
@@ -110,12 +55,11 @@ class SwapBotLogFormatter(logging.Formatter):
 class SwapBotLogger:
     """
     Main logger class for P2P Swap Bot implementing comprehensive logging
-    infrastructure with async processing and sensitive data filtering.
+    infrastructure with synchronous processing and sensitive data filtering.
     """
 
     def __init__(self):
         self.logs_dir = Path('logs')
-        self.async_handlers = []
         self._setup_directories()
         self._setup_loggers()
 
@@ -211,24 +155,14 @@ class SwapBotLogger:
             event_filter = LogEventFilter(category=filter_category)
             file_handler.addFilter(event_filter)
 
-        # Wrap in async handler for performance
-        async_handler = AsyncLogHandler(file_handler)
-        self.async_handlers.append(async_handler)
-
-        logger.addHandler(async_handler)
+        logger.addHandler(file_handler)
         logger.propagate = False  # Prevent duplicate logging
 
         return logger
 
-    async def start_async_logging(self):
-        """Start all async log handlers"""
-        for handler in self.async_handlers:
-            await handler.start_async_processing()
-
     def shutdown(self):
         """Shutdown all loggers and flush remaining logs"""
-        for handler in self.async_handlers:
-            handler.stop()
+        logging.shutdown()
 
     def log_user_interaction(self, user_id: int, action: str, details: str = '',
                            level: int = logging.INFO):
@@ -344,7 +278,7 @@ def get_swap_logger() -> SwapBotLogger:
         _swap_logger = SwapBotLogger()
     return _swap_logger
 
-def init_async_logging():
-    """Initialize async logging - call this on bot startup"""
+def init_logging():
+    """Initialize logging - call this on bot startup"""
     logger = get_swap_logger()
-    return logger.start_async_logging()
+    return logger

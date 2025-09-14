@@ -12,7 +12,7 @@ from pathlib import Path
 # Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent / 'src'))
 
-from logger_config import get_swap_logger, init_async_logging
+from logger_config import get_swap_logger, init_logging
 
 
 async def test_logging_system():
@@ -24,7 +24,7 @@ async def test_logging_system():
     # Initialize logging system
     try:
         swap_logger = get_swap_logger()
-        await init_async_logging()
+        init_logging()
         print("✅ Logging system initialized successfully")
     except Exception as e:
         print(f"❌ Failed to initialize logging system: {e}")
@@ -107,8 +107,8 @@ async def test_logging_system():
 
     print("✅ All logging tests completed")
 
-    # Give async loggers time to process
-    await asyncio.sleep(1)
+    # Give loggers time to process (no longer needed for sync logging)
+    pass
 
     return True
 

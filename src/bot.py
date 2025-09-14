@@ -36,7 +36,7 @@ from database.models import get_db, User, Offer, Deal, create_tables
 from message_manager import MessageManager
 
 # Import logging system
-from logger_config import get_swap_logger, init_async_logging
+from logger_config import get_swap_logger, init_logging
 
 # Load environment variables
 load_dotenv()
@@ -2004,13 +2004,9 @@ def main():
     # Button handler
     application.add_handler(CallbackQueryHandler(button_handler))
     
-    # Initialize async logging
-    async def startup():
-        await init_async_logging()
-        swap_logger.log_system_event('bot_startup', 'P2P Swap Bot starting')
-
-    # Run startup tasks
-    asyncio.run(startup())
+    # Initialize logging
+    init_logging()
+    swap_logger.log_system_event('bot_startup', 'P2P Swap Bot starting')
 
     # Start bot
     logger.info("Starting P2P Swap Bot...")
