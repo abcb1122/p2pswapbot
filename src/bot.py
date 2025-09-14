@@ -602,7 +602,38 @@ async def txid_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         db.close()
         await update.message.reply_text(msg.get_message('txid_no_active_deal'))
         return
-    
+
+    # Get fixed address for this deal amount
+    fixed_address = FIXED_ADDRESSES.get(deal.amount_sats, "ADDRESS_NOT_CONFIGURED")
+    if fixed_address == "ADDRESS_NOT_CONFIGURED":
+        db.close()
+        await update.message.reply_text(msg.get_message('txid_address_not_configured'))
+        return
+
+    # Verify the Bitcoin transaction on blockchain
+    try:
+        from bitcoin_utils import verify_payment
+        verification_result = verify_payment(fixed_address, deal.amount_sats, txid)
+
+        if not verification_result.get('found', False):
+            db.close()
+            await update.message.reply_text(
+                msg.get_message('txid_verification_failed',
+                    error=verification_result.get('error', 'Payment not found')),
+                parse_mode='Markdown'
+            )
+            return
+
+        # Log verification details
+        confirmations = verification_result.get('confirmations', 0)
+        logger.info(f"TXID {txid} verified: {confirmations} confirmations for {deal.amount_sats} sats to {fixed_address}")
+
+    except Exception as e:
+        logger.error(f"Error verifying Bitcoin transaction {txid}: {e}")
+        db.close()
+        await update.message.reply_text(msg.get_message('txid_verification_error'))
+        return
+
     # Update deal with TXID and timeouts
     deal.buyer_bitcoin_txid = txid
     deal.status = 'bitcoin_sent'
