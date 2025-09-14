@@ -35,11 +35,17 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Cont
 from database.models import get_db, User, Offer, Deal, create_tables
 from message_manager import MessageManager
 
+# Import logging system
+from logger_config import get_swap_logger, init_async_logging
+
 # Load environment variables
 load_dotenv()
 
 # Global message manager instance
 msg = None
+
+# Global swap logger instance
+swap_logger = None
 
 # =============================================================================
 # CORE CONFIGURATION - MODIFY HERE FOR QUICK CHANGES
@@ -135,27 +141,57 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
         db.add(new_user)
         db.commit()
+
+        # Log new user registration
+        swap_logger.log_user_registration(
+            user_id=user.id,
+            username=user.username or '',
+            registration_type='manual'
+        )
         logger.info(f"New user registered: {user.id} ({user.username})")
     else:
+        # Log existing user start command
+        swap_logger.log_command(
+            user_id=user.id,
+            command='/start',
+            details={'status': 'existing_user'}
+        )
         logger.info(f"Existing user: {user.id} ({user.username})")
-    
+
     db.close()
-    
+
+    # Log command execution
+    swap_logger.log_command(user_id=user.id, command='/start')
+
     await update.message.reply_text(msg.get_message('MSG-001'))
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Command /help - Information about how to use the bot"""
+    user = update.effective_user
+
+    # Log command execution
+    swap_logger.log_command(user_id=user.id, command='/help')
+
     await update.message.reply_text(msg.get_message('MSG-002'))
 
 async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Command /profile - View user statistics"""
     user = update.effective_user
-    
+
+    # Log command execution
+    swap_logger.log_command(user_id=user.id, command='/profile')
+
     db = get_db()
     user_data = db.query(User).filter(User.telegram_id == user.id).first()
     db.close()
-    
+
     if not user_data:
+        # Log user not found
+        swap_logger.log_user_interaction(
+            user_id=user.id,
+            action='profile_access',
+            details='user_not_registered'
+        )
         await update.message.reply_text(msg.get_message('MSG-003'))
         return
     
@@ -184,15 +220,24 @@ async def swapout(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     Command /swapout - Ana creates Lightning → Bitcoin offer
     Step 2 in flow: Ana selects amount with buttons
     """
+    user = update.effective_user
+
+    # Log command execution
+    swap_logger.log_command(
+        user_id=user.id,
+        command='/swapout',
+        details={'available_amounts': AMOUNTS}
+    )
+
     keyboard = []
-    
+
     # Create buttons for each available amount
     for amount in AMOUNTS:
         text = format_amount(amount)
         keyboard.append([InlineKeyboardButton(text, callback_data=f"swapout_{amount}")])
-    
+
     reply_markup = InlineKeyboardMarkup(keyboard)
-    
+
     await update.message.reply_text(
         msg.get_message('MSG-035'),
         reply_markup=reply_markup
@@ -200,14 +245,23 @@ async def swapout(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def swapin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Command /swapin - Create Bitcoin → Lightning offer"""
+    user = update.effective_user
+
+    # Log command execution
+    swap_logger.log_command(
+        user_id=user.id,
+        command='/swapin',
+        details={'available_amounts': AMOUNTS}
+    )
+
     keyboard = []
-    
+
     for amount in AMOUNTS:
         text = format_amount(amount)
         keyboard.append([InlineKeyboardButton(text, callback_data=f"swapin_{amount}")])
-    
+
     reply_markup = InlineKeyboardMarkup(keyboard)
-    
+
     await update.message.reply_text(
         msg.get_message('MSG-036'),
         reply_markup=reply_markup
@@ -223,14 +277,21 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     """
     query = update.callback_query
     await query.answer()
-    
+
     user = query.from_user
     data = query.data
-    
+
+    # Log button click
+    swap_logger.log_button_click(
+        user_id=user.id,
+        callback_data=data,
+        context='button_handler'
+    )
+
     # Auto-register user if doesn't exist
     db = get_db()
     user_data = db.query(User).filter(User.telegram_id == user.id).first()
-    
+
     if not user_data:
         new_user = User(
             telegram_id=user.id,
@@ -243,6 +304,13 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         )
         db.add(new_user)
         db.commit()
+
+        # Log auto-registration
+        swap_logger.log_user_registration(
+            user_id=user.id,
+            username=user.username or '',
+            registration_type='auto'
+        )
         logger.info(f"Auto-registered user: {user.id} ({user.username})")
     
     # Process different button types
@@ -584,12 +652,27 @@ async def txid_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     Step 8 in flow: Carlos sends TXID and waits for confirmations
     """
     user = update.effective_user
-    
+
+    # Log command execution
+    txid_value = context.args[0].strip() if context.args else ''
+    swap_logger.log_command(
+        user_id=user.id,
+        command='/txid',
+        details={'has_txid': bool(context.args)}
+    )
+
     if not context.args:
         await update.message.reply_text(msg.get_message('txid_usage_error'))
         return
 
     txid = context.args[0].strip()
+
+    # Log TXID submission (filtered)
+    swap_logger.log_user_interaction(
+        user_id=user.id,
+        action='txid_submission',
+        details=f'txid={txid[:8]}...' if txid else 'empty_txid'
+    )
     
     # Find active deal for this user
     db = get_db()
@@ -664,7 +747,14 @@ async def invoice_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     Step 9 in flow: Carlos sends invoice, lnproxy privacy attempted
     """
     user = update.effective_user
-    
+
+    # Log command execution
+    swap_logger.log_command(
+        user_id=user.id,
+        command='/invoice',
+        details={'has_invoice': bool(context.args)}
+    )
+
     if not context.args:
         await update.message.reply_text(
             msg.get_message('invoice_usage_error'),
@@ -673,7 +763,14 @@ async def invoice_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         return
 
     invoice = ' '.join(context.args).strip()
-    
+
+    # Log invoice submission (filtered)
+    swap_logger.log_user_interaction(
+        user_id=user.id,
+        action='invoice_submission',
+        details=f'invoice={invoice[:10]}...' if invoice else 'empty_invoice'
+    )
+
     # Basic invoice validation
     if not invoice.startswith(('lnbc', 'lntb', 'lnbcrt')):
         await update.message.reply_text(
@@ -816,7 +913,14 @@ async def address_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     CORRECTED FLOW: Address FIRST, then invoice to pay
     """
     user = update.effective_user
-    
+
+    # Log command execution
+    swap_logger.log_command(
+        user_id=user.id,
+        command='/address',
+        details={'has_address': bool(context.args)}
+    )
+
     if not context.args:
         await update.message.reply_text("""
 ❌ Usage: /address [bitcoin_address]
@@ -826,7 +930,14 @@ Example: /address tb1q...
         return
 
     address = context.args[0].strip()
-    
+
+    # Log address submission (filtered)
+    swap_logger.log_user_interaction(
+        user_id=user.id,
+        action='address_submission',
+        details=f'address={address[:8]}...' if address else 'empty_address'
+    )
+
     # Validate Bitcoin address
     try:
         from bitcoin_utils import validate_bitcoin_address
@@ -1839,6 +1950,15 @@ def main():
         logger.error(f"MessageManager initialization failed: {e}")
         logger.warning("Bot will continue with hardcoded fallback messages")
         msg = None
+
+    # Initialize Swap Logger
+    global swap_logger
+    try:
+        swap_logger = get_swap_logger()
+        logger.info("Swap Logger initialized successfully")
+    except Exception as e:
+        logger.error(f"Swap Logger initialization failed: {e}")
+        return
     
     # Create Telegram application
     application = Application.builder().token(BOT_TOKEN).build()
@@ -1884,6 +2004,14 @@ def main():
     # Button handler
     application.add_handler(CallbackQueryHandler(button_handler))
     
+    # Initialize async logging
+    async def startup():
+        await init_async_logging()
+        swap_logger.log_system_event('bot_startup', 'P2P Swap Bot starting')
+
+    # Run startup tasks
+    asyncio.run(startup())
+
     # Start bot
     logger.info("Starting P2P Swap Bot...")
     application.run_polling(

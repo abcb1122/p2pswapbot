@@ -186,6 +186,31 @@ carlos_messages:
     description: "Error when no active deal requires Bitcoin deposit"
     text: "❌ No active deal found requiring Bitcoin deposit"
 
+  txid_address_not_configured:
+    id: "MSG-019b"
+    description: "Error when fixed address not configured for deal amount"
+    text: "❌ Address not configured for this deal amount. Contact support."
+
+  txid_verification_failed:
+    id: "MSG-019c"
+    description: "Error when Bitcoin transaction verification fails"
+    text: |
+      ❌ **Transaction Verification Failed**
+
+      Error: {error}
+
+      Please check:
+      - Correct TXID
+      - Exact amount sent
+      - Correct address
+
+      Try again: /txid [your_txid]
+
+  txid_verification_error:
+    id: "MSG-019d"
+    description: "Error when Bitcoin verification system fails"
+    text: "❌ Verification system error. Please try again in a few minutes."
+
   txid_received_confirmation:
     id: "MSG-020"
     description: "Confirmation when TXID received and monitoring started"
